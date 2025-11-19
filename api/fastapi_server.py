@@ -623,7 +623,7 @@ async def websocket_endpoint(websocket: WebSocket):
             
     except WebSocketDisconnect:
         manager.disconnect(client_id)
-        logger.info(f"WebSocket client {client_id} disconnected")
+        logger.debug(f"WebSocket client {client_id} disconnected")
     except Exception as e:
         logger.error(f"WebSocket error for client {client_id}: {e}")
         manager.disconnect(client_id)
@@ -908,18 +908,42 @@ async def create_tool(request: CreateToolRequest):
             }
         }
 
-        # Save STL file if provided
-        if request.stl_data and request.mesh_file:
-            meshes_dir = PROJECT_ROOT / "frontend" / "public" / "urdf" / "meshes"
-            meshes_dir.mkdir(parents=True, exist_ok=True)
-            stl_path = meshes_dir / request.mesh_file
+        # Add gripper config if provided
+        if request.gripper_config:
+            new_tool["gripper_config"] = {
+                "enabled": request.gripper_config.enabled,
+                "io_pin": request.gripper_config.io_pin,
+                "open_is_high": request.gripper_config.open_is_high,
+                "mesh_file_open": request.gripper_config.mesh_file_open,
+                "mesh_file_closed": request.gripper_config.mesh_file_closed
+            }
 
-            # Decode base64 and save
+        meshes_dir = PROJECT_ROOT / "frontend" / "public" / "urdf" / "meshes"
+        meshes_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save main STL file if provided
+        if request.stl_data and request.mesh_file:
+            stl_path = meshes_dir / request.mesh_file
             stl_bytes = base64.b64decode(request.stl_data)
             with open(stl_path, "wb") as f:
                 f.write(stl_bytes)
-
             logger.info(f"Saved STL file to {stl_path}")
+
+        # Save open state STL if provided
+        if request.stl_data_open and request.gripper_config and request.gripper_config.mesh_file_open:
+            stl_path = meshes_dir / request.gripper_config.mesh_file_open
+            stl_bytes = base64.b64decode(request.stl_data_open)
+            with open(stl_path, "wb") as f:
+                f.write(stl_bytes)
+            logger.info(f"Saved open state STL file to {stl_path}")
+
+        # Save closed state STL if provided
+        if request.stl_data_closed and request.gripper_config and request.gripper_config.mesh_file_closed:
+            stl_path = meshes_dir / request.gripper_config.mesh_file_closed
+            stl_bytes = base64.b64decode(request.stl_data_closed)
+            with open(stl_path, "wb") as f:
+                f.write(stl_bytes)
+            logger.info(f"Saved closed state STL file to {stl_path}")
 
         # Add to tools list
         tools.append(new_tool)
@@ -985,18 +1009,42 @@ async def update_tool(tool_id: str, request: UpdateToolRequest):
             tool['tcp_offset']['ry'] = request.tcp_offset_rotation.ry
             tool['tcp_offset']['rz'] = request.tcp_offset_rotation.rz
 
-        # Save STL file if provided
-        if request.stl_data and request.mesh_file:
-            meshes_dir = PROJECT_ROOT / "frontend" / "public" / "urdf" / "meshes"
-            meshes_dir.mkdir(parents=True, exist_ok=True)
-            stl_path = meshes_dir / request.mesh_file
+        # Update gripper config if provided
+        if request.gripper_config is not None:
+            if 'gripper_config' not in tool:
+                tool['gripper_config'] = {}
+            tool['gripper_config']['enabled'] = request.gripper_config.enabled
+            tool['gripper_config']['io_pin'] = request.gripper_config.io_pin
+            tool['gripper_config']['open_is_high'] = request.gripper_config.open_is_high
+            tool['gripper_config']['mesh_file_open'] = request.gripper_config.mesh_file_open
+            tool['gripper_config']['mesh_file_closed'] = request.gripper_config.mesh_file_closed
 
-            # Decode base64 and save
+        meshes_dir = PROJECT_ROOT / "frontend" / "public" / "urdf" / "meshes"
+        meshes_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save main STL file if provided
+        if request.stl_data and request.mesh_file:
+            stl_path = meshes_dir / request.mesh_file
             stl_bytes = base64.b64decode(request.stl_data)
             with open(stl_path, "wb") as f:
                 f.write(stl_bytes)
-
             logger.info(f"Saved STL file to {stl_path}")
+
+        # Save open state STL if provided
+        if request.stl_data_open and request.gripper_config and request.gripper_config.mesh_file_open:
+            stl_path = meshes_dir / request.gripper_config.mesh_file_open
+            stl_bytes = base64.b64decode(request.stl_data_open)
+            with open(stl_path, "wb") as f:
+                f.write(stl_bytes)
+            logger.info(f"Saved open state STL file to {stl_path}")
+
+        # Save closed state STL if provided
+        if request.stl_data_closed and request.gripper_config and request.gripper_config.mesh_file_closed:
+            stl_path = meshes_dir / request.gripper_config.mesh_file_closed
+            stl_bytes = base64.b64decode(request.stl_data_closed)
+            with open(stl_path, "wb") as f:
+                f.write(stl_bytes)
+            logger.info(f"Saved closed state STL file to {stl_path}")
 
         # If this is the active tool, sync tcp_offset
         if config.get('ui', {}).get('active_tool') == tool_id:

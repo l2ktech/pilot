@@ -161,12 +161,12 @@ ui:
   show_safety_warnings: false
   step_angle: 1
   tcp_offset: &id001
-    rx: 90
-    ry: 180
-    rz: 90
-    x: 0
-    y: 0
-    z: -34
+    rx: 90.0
+    ry: 180.0
+    rz: 0.0
+    x: 0.0
+    y: -50.0
+    z: 0.0
   tools:
   - description: No tool attached - TCP at J6 flange tip
     id: default_j6_tip
@@ -188,24 +188,24 @@ ui:
       y: 0
       z: -34
   - description: ''
+    gripper_config:
+      enabled: true
+      io_pin: 1
+      mesh_file_closed: null
+      mesh_file_open: L6.STL
+      open_is_high: true
     id: standard_90deg_tool
     mesh_file: L6.STL
     mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
+      rx: 0.0
+      ry: 0.0
+      rz: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.061
     mesh_units: m
     name: Standard 90deg tool
-    tcp_offset:
-      rx: 90
-      ry: 180
-      rz: 0
-      x: 0
-      y: -42
-      z: -62.8
+    tcp_offset: *id001
   - description: ''
     id: custom_flange
     mesh_file: Pneumatic_gripper_holder_horizontal.stl
@@ -229,50 +229,37 @@ ui:
     id: default_no_offset
     mesh_file: null
     mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
+      rx: 0.0
+      ry: 0.0
+      rz: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
     mesh_units: mm
-    name: Default no offset
+    name: No offset
     tcp_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
+      rx: 0.0
+      ry: 0.0
+      rz: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
   - description: ''
-    id: rotation_only
-    mesh_file: null
+    id: duck
+    mesh_file: RubberDuck.stl
     mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
+      rx: 0.0
+      ry: 180.0
+      rz: 90.0
+      x: -0.033
+      y: 0.042
+      z: -0.034
     mesh_units: mm
-    name: Rotation only
+    name: Duck
     tcp_offset:
-      rx: 90
-      ry: 180
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
-  - description: ''
-    id: at_flange_no_rotation
-    mesh_file: null
-    mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0
-    mesh_units: mm
-    name: At flange
-    tcp_offset: *id001
+      rx: 0.0
+      ry: 0.0
+      rz: 0.0
+      x: -8.0
+      y: -39.4
+      z: -92.8

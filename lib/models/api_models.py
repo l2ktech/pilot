@@ -531,6 +531,15 @@ class ToolOffsetRotation(BaseModel):
     rz: float = Field(0, description="Rotation around Z in degrees")
 
 
+class GripperConfig(BaseModel):
+    """Gripper I/O configuration"""
+    enabled: bool = Field(False, description="Whether gripper I/O is enabled")
+    io_pin: Literal[1, 2] = Field(1, description="Digital output pin number (1 or 2)")
+    open_is_high: bool = Field(True, description="True if open state = I/O HIGH, False if open state = I/O LOW")
+    mesh_file_open: Optional[str] = Field(None, description="STL filename for open state")
+    mesh_file_closed: Optional[str] = Field(None, description="STL filename for closed state")
+
+
 class CreateToolRequest(BaseModel):
     """Request to create a new tool"""
     name: str = Field(..., description="Tool name", min_length=1)
@@ -541,7 +550,10 @@ class CreateToolRequest(BaseModel):
     mesh_offset_rotation: ToolOffsetRotation = Field(default_factory=ToolOffsetRotation, description="Mesh visual offset rotation")
     tcp_offset_position: ToolOffsetPosition = Field(default_factory=ToolOffsetPosition, description="TCP functional offset position in mm")
     tcp_offset_rotation: ToolOffsetRotation = Field(default_factory=ToolOffsetRotation, description="TCP functional offset rotation")
+    gripper_config: Optional[GripperConfig] = Field(None, description="Gripper I/O configuration")
     stl_data: Optional[str] = Field(None, description="Base64 encoded STL file data")
+    stl_data_open: Optional[str] = Field(None, description="Base64 encoded STL file data for open state")
+    stl_data_closed: Optional[str] = Field(None, description="Base64 encoded STL file data for closed state")
 
 
 class UpdateToolRequest(BaseModel):
@@ -554,4 +566,7 @@ class UpdateToolRequest(BaseModel):
     mesh_offset_rotation: Optional[ToolOffsetRotation] = Field(None, description="Mesh visual offset rotation")
     tcp_offset_position: Optional[ToolOffsetPosition] = Field(None, description="TCP functional offset position in mm")
     tcp_offset_rotation: Optional[ToolOffsetRotation] = Field(None, description="TCP functional offset rotation")
+    gripper_config: Optional[GripperConfig] = Field(None, description="Gripper I/O configuration")
     stl_data: Optional[str] = Field(None, description="Base64 encoded STL file data")
+    stl_data_open: Optional[str] = Field(None, description="Base64 encoded STL file data for open state")
+    stl_data_closed: Optional[str] = Field(None, description="Base64 encoded STL file data for closed state")

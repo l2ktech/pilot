@@ -405,6 +405,12 @@ def execute_trajectory(
     duration_str = str(duration) if duration is not None else "None"
     command = f"EXECUTETRAJECTORY|{trajectory_json}|{duration_str}"
 
+    # Debug logging
+    parts_count = command.count('|') + 1
+    logger.info(f"[DEBUG] Building EXECUTETRAJECTORY command: duration={duration}, parts={parts_count}")
+    if parts_count != 3:
+        logger.error(f"[DEBUG] Command has wrong number of parts! Command preview: {command[:200]}...")
+
     # Send with or without tracking
     if wait_for_ack:
         return send_and_wait(command, timeout, non_blocking)
@@ -1056,54 +1062,6 @@ def chain_smooth_motions(
             break
     
     return results
-
-def execute_trajectory(
-    trajectory: List[List[float]],
-    timing_mode: Literal['duration', 'speed'] = 'duration',
-    timing_value: float = 5.0,
-    motion_type: Literal['spline', 'linear'] = 'spline',
-    frame: Literal['WRF', 'TRF'] = 'WRF',  # ADD THIS
-    wait_for_ack: bool = True,
-    timeout: float = 30.0,
-):
-    """
-    High-level function to execute a trajectory using the best method.
-    
-    Args:
-        trajectory: List of poses [x, y, z, rx, ry, rz]
-        timing_mode: 'duration' for total time, 'speed' for percentage
-        timing_value: Duration in seconds or speed percentage
-        motion_type: 'spline' for smooth curves, 'linear' for point-to-point
-        frame: Reference frame ('WRF' or 'TRF')  # ADD THIS
-        wait_for_ack: Enable command tracking (recommended for trajectories)
-        timeout: Timeout for acknowledgment
-    """
-    if motion_type == 'spline':
-        if timing_mode == 'duration':
-            return smooth_spline(trajectory, frame=frame, duration=timing_value,  # ADD frame
-                               wait_for_ack=wait_for_ack, timeout=timeout)
-        else:
-            return smooth_spline(trajectory, frame=frame, speed_percentage=timing_value,  # ADD frame
-                               wait_for_ack=wait_for_ack, timeout=timeout)
-    else:
-        # Linear motion - send as individual move commands
-        results = []
-        for pose in trajectory:
-            if timing_mode == 'duration':
-                segment_duration = timing_value / len(trajectory)
-                # Note: move_robot_cartesian doesn't support TRF, only smooth motions do
-                result = move_robot_cartesian(pose, duration=segment_duration,
-                                             wait_for_ack=wait_for_ack, timeout=timeout)
-            else:
-                result = move_robot_cartesian(pose, speed_percentage=timing_value,
-                                             wait_for_ack=wait_for_ack, timeout=timeout)
-            results.append(result)
-            
-            # Check for failures if tracking
-            if wait_for_ack and result.get('status') == 'FAILED':
-                break
-        
-        return results
 
 # ============================================================================
 # BASIC FUNCTIONS

@@ -36,7 +36,7 @@ class ConnectionManager:
         self.update_rates[client_id] = 10  # Default 10Hz
         self.last_update[client_id] = datetime.now()
         self.log_filters[client_id] = 'INFO'  # Default log level
-        logger.info(f"Client {client_id} connected")
+        logger.debug(f"Client {client_id} connected")
         
     def disconnect(self, client_id: str):
         """Remove disconnected client"""
@@ -46,7 +46,7 @@ class ConnectionManager:
             del self.update_rates[client_id]
             del self.last_update[client_id]
             del self.log_filters[client_id]
-            logger.info(f"Client {client_id} disconnected")
+            logger.debug(f"Client {client_id} disconnected")
             
     async def send_personal_message(self, message: str, client_id: str):
         """Send message to specific client"""
