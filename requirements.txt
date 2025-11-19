@@ -1,0 +1,77 @@
+# PAROL6 Robot Control System - Python Dependencies
+# Python 3.9+ required
+
+# Web Framework & API
+fastapi>=0.104.0,<0.200.0
+uvicorn[standard]>=0.24.0,<0.30.0
+python-multipart>=0.0.6,<0.1.0
+websockets>=12.0,<13.0
+
+# Data Validation & Serialization
+pydantic>=2.0.0,<3.0.0
+pyyaml>=6.0.0,<7.0.0
+
+# Numerical Computing & Mathematics
+numpy>=1.24.0,<2.0.0
+
+# Robotics & Kinematics
+# NOTE: roboticstoolbox-python and dependencies are provided via rtb-reference/
+# If rtb-reference is not available, install manually:
+#   pip install roboticstoolbox-python>=1.0.0
+#   pip install spatialmath-python>=1.1.0
+#   pip install spatialgeometry>=1.0.0
+#   pip install swift-sim>=1.0.0
+
+# Computer Vision (Camera Support)
+opencv-python>=4.8.0,<5.0.0
+
+# Serial Communication
+pyserial>=3.5,<4.0
+
+# Logging & Utilities
+python-dateutil>=2.8.0,<3.0.0
+
+# Development Dependencies (Optional)
+# Uncomment for development features:
+# pytest>=7.4.0,<8.0.0
+# pytest-asyncio>=0.21.0,<0.22.0
+# black>=23.9.0,<24.0.0
+# mypy>=1.5.0,<2.0.0
+# ruff>=0.0.290,<0.1.0
+
+# Installation Notes:
+# ==================
+#
+# 1. Install in virtual environment (recommended):
+#    python3 -m venv venv
+#    source venv/bin/activate  # Windows: venv\Scripts\activate
+#    pip install -r requirements.txt
+#
+# 2. Robotics Toolbox (rtb-reference):
+#    The rtb-reference/ directory contains a local copy of roboticstoolbox-python
+#    and its dependencies. This is required for inverse kinematics solving.
+#
+#    If rtb-reference/ is missing, either:
+#    a) Clone it from the original repository (check git submodules)
+#    b) Install via pip (uncomment the packages above)
+#
+# 3. OpenCV Installation on Raspberry Pi:
+#    If opencv-python installation fails on Raspberry Pi, try:
+#    sudo apt-get install python3-opencv
+#    Or use the pre-built wheel for ARM:
+#    pip install opencv-contrib-python
+#
+# 4. Serial Port Access:
+#    After installation, ensure your user has serial port access:
+#    sudo usermod -a -G dialout $USER
+#    (Log out and back in for changes to take effect)
+#
+# 5. System Dependencies (Ubuntu/Debian):
+#    sudo apt-get update
+#    sudo apt-get install -y python3-dev python3-pip
+#    sudo apt-get install -y libatlas-base-dev  # For numpy
+#    sudo apt-get install -y libopencv-dev      # For OpenCV (optional)
+#
+# 6. Verify Installation:
+#    python3 -c "import fastapi, numpy, yaml, cv2, serial; print('✓ All core dependencies installed')"
+#    python3 -c "from lib.kinematics import robot_model; print('✓ Robotics Toolbox available')"

@@ -1,10 +1,12 @@
 # Dependencies
 node_modules/
 frontend/node_modules/
-backend/__pycache__/
-backend/*.pyc
-*.pyo
-*.pyd
+
+# Python cache - ALL locations
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
 .Python
 
 # Build outputs
@@ -44,3 +46,38 @@ coverage/
 # Misc
 *.pid
 .pm2/
+
+# Development directories (not for production)
+recordings/
+test_results/
+tests/
+backups/
+
+# Kinematics development files (not for production)
+lib/kinematics/debug_*.py
+lib/kinematics/test_*.py
+lib/kinematics/visualize_*.py
+lib/kinematics/plot_*.py
+lib/kinematics/calculate_*.py
+lib/kinematics/verify_*.py
+lib/kinematics/extract_*.py
+lib/kinematics/compute_*.py
+lib/kinematics/*.png
+lib/kinematics/*.jpg
+
+# Deprecated code
+**/deprecated/
+
+# Temporary files
+*_old.*
+*.backup
+*.bak
+*_backup.*
+NEW_URDF_TEST_README.md
+
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+frontend/logs/
+
+# Reference library (installed separately via requirements.txt)
+rtb-reference/

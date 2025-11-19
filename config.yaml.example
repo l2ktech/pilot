@@ -1,0 +1,178 @@
+# PAROL6 Robot Control System Configuration
+# Copy this file to config.yaml and configure for your environment
+
+api:
+  # API server configuration
+  host: 0.0.0.0  # Listen on all network interfaces
+  port: 3001     # API server port (must match frontend configuration)
+
+  # CORS origins - Add all URLs that will access the API
+  cors_origins:
+    - http://localhost:3000      # Local frontend
+    - http://localhost:3001      # Local API docs
+    # Add your network IPs below:
+    # - http://192.168.1.100:3000  # Replace with your IP
+    # - http://parol6.local:3000   # Replace with your hostname
+
+  # WebSocket telemetry rates
+  ws_default_rate_hz: 10  # Default update rate (1-50 Hz)
+  ws_max_rate_hz: 50      # Maximum allowed rate
+
+camera:
+  # Camera configuration (optional - set auto_start: false to disable)
+  auto_start: false
+  default_device: /dev/video0  # Linux camera device
+  resolution:
+    width: 640
+    height: 480
+  fps: 30
+  jpeg_quality: 80
+
+frontend:
+  # Frontend expects API at this URL (for server-side operations)
+  api_url: http://localhost:3001
+
+  websocket:
+    default_rate_hz: 50              # Frontend update rate
+    hardware_data_timeout_ms: 3000   # Hardware disconnect timeout
+    reconnect:
+      base_delay_ms: 1000
+      max_attempts: 10
+    topics:
+      - status  # Robot state
+      - joints  # Joint angles
+      - pose    # End-effector pose
+      - io      # Digital I/O
+      - gripper # Gripper status
+
+logging:
+  level: INFO  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+  # Component-specific log levels
+  api:
+    level: INFO
+  commander:
+    level: INFO
+
+  # Log buffering and streaming
+  buffer_size: 1000
+  initial_log_count: 100
+  stream_to_websocket: true
+
+  # UDP log forwarding (commander -> API)
+  log_forward_enabled: true
+  log_forward_host: 127.0.0.1
+  log_forward_port: 5003
+
+  # File output (null to disable)
+  file_output: null
+  # file_output: logs/parol6.log  # Uncomment to enable file logging
+
+robot:
+  # Serial port configuration
+  com_port: /dev/ttyACM0  # Linux: /dev/ttyACM0 or /dev/ttyUSB0
+                           # Windows: COM3, COM4, etc.
+  baud_rate: 3000000       # Communication speed
+  timeout: 0               # Serial timeout (0 = non-blocking)
+
+  # Safety settings
+  estop_enabled: true
+  auto_home_on_startup: false  # Automatically home robot on startup
+
+server:
+  # UDP communication between API and Commander
+  command_port: 5001  # Commands from API to Commander
+  ack_port: 5002      # Acknowledgments from Commander to API
+
+  # Log forwarding
+  log_forward_enabled: true
+  log_forward_port: 5003
+
+  # Commander loop timing
+  loop_interval: 0.01  # 100Hz control loop (0.01 seconds)
+
+ui:
+  # User interface defaults
+  default_speed_percentage: 50
+  default_acceleration_percentage: 90
+  default_fps: 60
+  default_timeline_duration: 10
+  cartesian_position_step_mm: 1
+
+  # Active tool (see tools list below)
+  active_tool: standard_90deg_tool
+
+  # Robot visualization colors
+  hardware_robot:
+    color: '#9096f4'      # Actual robot position
+    transparency: 0.3
+  commander_robot:
+    color: '#ffffff'      # Commanded robot position
+    transparency: 1
+
+  # Saved positions (for quick recall)
+  saved_positions:
+    - name: Home
+      joints: [90, -90, 180, 0, 0, 180]
+    - name: Ready
+      joints: [0, -90, 180, 0, 0, 90]
+    - name: Shutdown pose
+      joints: [90, -145.0, 107.9, 0, 0, 180]
+
+  # Tool definitions
+  tools:
+    - id: standard_90deg_tool
+      name: Standard 90° Tool
+      description: Default end-effector with 90° bend
+      mesh_file: PAROL_gripper.stl
+      mesh_units: mm
+      mesh_offset:
+        x: 0
+        y: 0
+        z: 0
+        rx: 0
+        ry: 0
+        rz: 0
+      tcp_offset:
+        x: 0
+        y: 0
+        z: 180  # Tool length in mm
+        rx: 0
+        ry: 0
+        rz: 0
+      # Optional gripper configuration
+      # gripper_config:
+      #   enabled: true
+      #   io_pin: 1
+      #   open_is_high: true
+      #   mesh_file_open: gripper_open.stl
+      #   mesh_file_closed: gripper_closed.stl
+
+# Deployment Notes:
+# ================
+#
+# 1. Serial Port Access:
+#    Ensure your user has permission:
+#    sudo usermod -a -G dialout $USER
+#    (Log out and back in)
+#
+# 2. Network Access:
+#    To access from other devices:
+#    a) Find your IP: hostname -I
+#    b) Add to cors_origins above
+#    c) Configure frontend/.env.local with your IP
+#
+# 3. Port Configuration:
+#    Frontend MUST be on 3000, API MUST be on 3001
+#    These are hardcoded in some components
+#
+# 4. Tool Configuration:
+#    - mesh_file: STL file in frontend/public/urdf/meshes/
+#    - mesh_units: 'mm' or 'm' (units of STL file)
+#    - tcp_offset: Tool center point offset from flange
+#    - Use gripper_config for grippers with open/close states
+#
+# 5. Safety:
+#    - Keep estop_enabled: true for safety
+#    - Test new configurations at low speed
+#    - Verify joint limits before operation

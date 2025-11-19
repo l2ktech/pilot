@@ -103,54 +103,6 @@ ui:
     - 180
     name: FK_Test_Standby
   - joints:
-    - 0
-    - -90
-    - 180
-    - 0
-    - 0
-    - 180
-    name: FK_Test_J1
-  - joints:
-    - 90
-    - -60
-    - 180
-    - 0
-    - 0
-    - 180
-    name: FK_Test_J2
-  - joints:
-    - 90
-    - -90
-    - 150
-    - 0
-    - 0
-    - 180
-    name: FK_Test_J3
-  - joints:
-    - 90
-    - -90
-    - 180
-    - 45
-    - 0
-    - 180
-    name: FK_Test_J4
-  - joints:
-    - 90
-    - -90
-    - 180
-    - 0
-    - 45
-    - 180
-    name: FK_Test_J5
-  - joints:
-    - 90
-    - -90
-    - 180
-    - 0
-    - 0
-    - 90
-    name: FK_Test_J6
-  - joints:
     - 45
     - -80
     - 160
@@ -160,13 +112,13 @@ ui:
     name: FK_Test_Multi
   show_safety_warnings: false
   step_angle: 1
-  tcp_offset: &id001
-    rx: 90.0
-    ry: 180.0
-    rz: 0.0
-    x: 0.0
-    y: -50.0
-    z: 0.0
+  tcp_offset:
+    rx: 90
+    ry: 180
+    rz: 0
+    x: 0
+    y: -50
+    z: 0
   tools:
   - description: No tool attached - TCP at J6 flange tip
     id: default_j6_tip
@@ -197,15 +149,21 @@ ui:
     id: standard_90deg_tool
     mesh_file: L6.STL
     mesh_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: 0.0
-      y: 0.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: 0
+      y: 0
       z: 0.061
     mesh_units: m
     name: Standard 90deg tool
-    tcp_offset: *id001
+    tcp_offset:
+      rx: 90
+      ry: 180
+      rz: 0
+      x: 0
+      y: -50
+      z: 0
   - description: ''
     id: custom_flange
     mesh_file: Pneumatic_gripper_holder_horizontal.stl
@@ -229,37 +187,37 @@ ui:
     id: default_no_offset
     mesh_file: null
     mesh_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: 0
+      y: 0
+      z: 0
     mesh_units: mm
     name: No offset
     tcp_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: 0
+      y: 0
+      z: 0
   - description: ''
     id: duck
     mesh_file: RubberDuck.stl
     mesh_offset:
-      rx: 0.0
-      ry: 180.0
-      rz: 90.0
+      rx: 0
+      ry: 180
+      rz: 90
       x: -0.033
       y: 0.042
       z: -0.034
     mesh_units: mm
     name: Duck
     tcp_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: -8.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: -8
       y: -39.4
       z: -92.8
