@@ -361,7 +361,7 @@ export default function Home() {
           {/* Tool Selector */}
           <div className="bg-card rounded-lg border p-3">
             <Label className="text-sm font-medium mb-2 block">Active Tool</Label>
-            <Select value={activeToolId || undefined} onValueChange={handleToolChange}>
+            <Select value={activeToolId || ""} onValueChange={handleToolChange}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select tool..." />
               </SelectTrigger>
