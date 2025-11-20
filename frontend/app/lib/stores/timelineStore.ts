@@ -49,7 +49,7 @@ export interface TimelineStore {
   ikProgress: IKProgressState;
 
   // Actions - Keyframe management
-  addKeyframe: (time: number, jointAngles: JointAngles, cartesianPose?: CartesianPose) => void;
+  addKeyframe: (time: number, jointAngles: JointAngles, cartesianPose?: CartesianPose, toolId?: string, gripperState?: 'open' | 'closed') => void;
   removeKeyframe: (id: string) => void;
   updateKeyframe: (id: string, updates: Partial<Keyframe>) => void;
   recordKeyframes: (jointAngles: JointAngles, cartesianPose?: CartesianPose) => void;
@@ -108,7 +108,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   // Keyframe management actions
-  addKeyframe: (time, jointAngles, cartesianPose) => {
+  addKeyframe: (time, jointAngles, cartesianPose, toolId, gripperState) => {
     set((state) => ({
       timeline: {
         ...state.timeline,
@@ -118,7 +118,9 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
             id: uuidv4(),
             time,
             jointAngles,
-            ...(cartesianPose && { cartesianPose })
+            ...(cartesianPose && { cartesianPose }),
+            ...(toolId && { toolId }),
+            ...(gripperState && { gripperState })
           }
         ].sort((a, b) => a.time - b.time) // Keep sorted by time
       }
@@ -172,16 +174,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       }
       state.updateKeyframe(existingKeyframe.id, updates);
     } else {
-      // Create new keyframe with cartesianPose and tool state atomically
-      state.addKeyframe(currentTime, jointAngles, cartesianPose);
-
-      // Update the newly created keyframe with tool state
-      const newKeyframe = state.timeline.keyframes.find(
-        (kf) => Math.abs(kf.time - currentTime) < 0.001
-      );
-      if (newKeyframe) {
-        state.updateKeyframe(newKeyframe.id, { toolId, gripperState });
-      }
+      // Create new keyframe with all properties including tool state
+      state.addKeyframe(currentTime, jointAngles, cartesianPose, toolId, gripperState);
     }
   },
 

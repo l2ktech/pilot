@@ -16,7 +16,7 @@ import { applyJointAnglesToUrdf } from '@/app/lib/urdfHelpers';
 import KeyframeEditDialog from './KeyframeEditDialog';
 import { logger } from '@/app/lib/logger';
 
-// Add CSS for outline nodes
+// Add CSS for outline nodes and timeline rows
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `
@@ -32,6 +32,26 @@ if (typeof document !== 'undefined') {
     }
     .outline-node:hover {
       background: #201616;
+    }
+
+    /* Timeline row styling - master row has distinct background */
+    .animation-timeline-js-rows > div:first-child {
+      background: rgba(255, 193, 7, 0.08) !important; /* Subtle amber tint for State row */
+    }
+    .animation-timeline-js-rows > div:not(:first-child) {
+      background: rgba(136, 136, 136, 0.03) !important; /* Very subtle gray for sub-rows */
+    }
+
+    /* Timeline bar colors - connecting lines between keyframes */
+    /* Master row bars: bright orange */
+    .animation-timeline-js-rows > div:first-child path[stroke] {
+      stroke: #ffb300 !important;
+      stroke-width: 3 !important;
+    }
+    /* Sub-row bars: dim gray */
+    .animation-timeline-js-rows > div:not(:first-child) path[stroke] {
+      stroke: #555555 !important;
+      stroke-width: 1 !important;
     }
   `;
   if (!document.head.querySelector('#timeline-outline-styles')) {
@@ -163,10 +183,20 @@ export default function Timeline() {
           rows.forEach((row: any, index: number) => {
             const div = document.createElement('div');
             div.className = 'outline-node';
-            const height = 20; // Match row height
+            // All rows same height (20px) to match timeline rows
+            const height = 20;
             const marginBottom = 3; // Match row marginBottom
             div.style.maxHeight = div.style.minHeight = `${height}px`;
             div.style.marginBottom = `${marginBottom}px`;
+
+            // State row: bold and 20% bigger font (14px), sub-rows: indented
+            if (index === 0) {
+              div.style.fontWeight = 'bold';
+              div.style.fontSize = '14px';
+            } else {
+              div.style.paddingLeft = '30px'; // 10px additional indent (20px base + 10px)
+            }
+
             div.innerText = row.title || `Track ${index}`;
             outlineRef.current?.appendChild(div);
           });
@@ -219,10 +249,20 @@ export default function Timeline() {
         rows.forEach((row: any, index: number) => {
           const div = document.createElement('div');
           div.className = 'outline-node';
-          const height = 20; // Match row height
+          // All rows same height (20px) to match timeline rows
+          const height = 20;
           const marginBottom = 3; // Match row marginBottom
           div.style.maxHeight = div.style.minHeight = `${height}px`;
           div.style.marginBottom = `${marginBottom}px`;
+
+          // State row: bold and 20% bigger font (14px), sub-rows: indented
+          if (index === 0) {
+            div.style.fontWeight = 'bold';
+            div.style.fontSize = '14px';
+          } else {
+            div.style.paddingLeft = '30px'; // 10px additional indent (20px base + 10px)
+          }
+
           div.innerText = row.title || `Track ${index}`;
           outlineRef.current?.appendChild(div);
         });
@@ -352,58 +392,66 @@ export default function Timeline() {
     const changes = detectPropertyChanges(sortedKeyframes);
 
     // Master "State" row - shows all keyframes (complete robot state)
-    // Make it more prominent: 25% larger, brighter colors
     const masterRow = {
       title: 'State',
       keyframes: sortedKeyframes.map((kf, index) => {
-        const isCartesian = kf.motionType === 'cartesian';
-
-        // Group assignment for cartesian interpolation bars
-        let group = undefined;
-        if (isCartesian && index > 0) {
-          group = `cart-${kf.id}`;
-        }
-
-        const nextIsCartesian =
-          index < sortedKeyframes.length - 1 &&
-          sortedKeyframes[index + 1].motionType === 'cartesian';
-        if (nextIsCartesian) {
-          group = `cart-${sortedKeyframes[index + 1].id}`;
-        }
-
         return {
           val: kf.time * 1000,
           selected: false,
           keyframeId: kf.id,
-          group: group,
-          // Brighter colors for master row
-          style: isCartesian
-            ? {
-                fillColor: '#00e5ff',  // Bright cyan for cartesian
-                strokeColor: '#00b8d4',
-              }
-            : {
-                fillColor: '#ffc107',  // Bright amber for joint
-                strokeColor: '#ffa000',
-              },
+          group: 'state-group',  // All keyframes in same group for consistent bars
+          // Blue keyframes for state row - diamonds
+          style: {
+            fillColor: '#1976d2',
+            strokeColor: '#0d47a1',
+            shape: 'rhomb',
+            width: 8,
+            height: 8,
+            strokeThickness: 2,
+          },
         };
       }),
       hidden: false,
-      rowsStyle: {
-        height: 25,  // 25% larger than sub-rows (20px)
-        marginBottom: 3
-      },
-      groupsStyle: {
-        strokeColor: '#ffb300',  // Brighter orange for cartesian bars
-        fillColor: 'transparent',
-        strokeThickness: 3,  // Thicker line
+      style: {
+        groupsStyle: {
+          fillColor: '#ff9800',  // Orange bar
+          strokeThickness: 0,
+          height: 12,  // Taller bar for state row
+        }
       },
     };
 
-    // Sub-rows - only show dots where properties changed
-    const subRowStyle = { fillColor: '#888', strokeColor: '#666' };
-    const toolStyle = { fillColor: '#ffa500', strokeColor: '#ff8c00' };
-    const gripperStyle = { fillColor: '#00ff00', strokeColor: '#00cc00' };
+    // Sub-rows - only show dots where properties changed (small circles)
+    const subRowStyle = {
+      fillColor: '#888',
+      strokeColor: '#666',
+      shape: 'circle',
+      width: 4,
+      height: 4,
+      strokeThickness: 1,
+    };
+    const toolStyle = {
+      fillColor: '#ffa500',
+      strokeColor: '#ff8c00',
+      shape: 'circle',
+      width: 4,
+      height: 4,
+      strokeThickness: 1,
+    };
+    const gripperStyle = {
+      fillColor: '#00ff00',
+      strokeColor: '#00cc00',
+      shape: 'circle',
+      width: 4,
+      height: 4,
+      strokeThickness: 1,
+    };
+
+    // Sub-row bars: solid dim gray bars
+    const subRowGroupsStyle = {
+      fillColor: '#555555',  // Dim gray bar
+      strokeThickness: 0,  // No outline
+    };
 
     const xRow = {
       title: 'X',
@@ -414,9 +462,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'x-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const yRow = {
@@ -428,9 +480,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'y-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const zRow = {
@@ -442,9 +498,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'z-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const rxRow = {
@@ -456,9 +516,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'rx-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const ryRow = {
@@ -470,9 +534,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'ry-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const rzRow = {
@@ -484,9 +552,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: subRowStyle,
+          group: 'rz-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const toolRow = {
@@ -498,9 +570,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: toolStyle,
+          group: 'tool-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     const gripperRow = {
@@ -512,9 +588,13 @@ export default function Timeline() {
           keyframeId: c.keyframeId,
           draggable: false,
           style: gripperStyle,
+          group: 'gripper-row-group',
         })),
       keyframesDraggable: false,
       hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
     };
 
     return [
