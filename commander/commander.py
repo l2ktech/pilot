@@ -11,7 +11,7 @@ You must also save these files into the following folder: "Project Files\PAROL-c
 # * If you press estop robot will stop and you need to enable it by pressing e
 
 # Apply numpy compatibility patch for numpy 2.0+
-from lib.utils import numpy_patch
+from api.utils import numpy_patch
 
 # Mock tkinter for headless environments (oclock imports it but we don't need GUI)
 import sys
@@ -40,7 +40,7 @@ import json
 import datetime
 from lib.kinematics import robot_model as PAROL6_ROBOT
 from lib.kinematics.trajectory_math import CircularMotion, SplineMotion, MotionBlender
-from lib.utils.logging_handler import setup_logging
+from api.utils.logging_handler import setup_logging
 
 # ============================================================================
 # TIER 1 REFACTORING: Import from centralized modules (now in lib/)

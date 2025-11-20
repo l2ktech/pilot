@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # Apply numpy compatibility patch for numpy 2.0+
-from lib.utils import numpy_patch
+from api.utils import numpy_patch
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +32,7 @@ import base64
 import robot_client
 from api.models import *
 from websocket_manager import ConnectionManager
-from lib.utils.logging_handler import get_websocket_handler, setup_logging
+from api.utils.logging_handler import get_websocket_handler, setup_logging
 from camera_manager import get_camera_manager
 
 import numpy as np
