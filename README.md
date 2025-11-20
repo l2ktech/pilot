@@ -123,12 +123,7 @@ robot:
 api:
   host: 0.0.0.0
   port: 3001
-  cors_origins:
-    - http://localhost:3000      # Frontend URL
-    - http://192.168.1.253:3000  # Add your network IP
 ```
-
-**Important**: If running on a network, add your IP address to `cors_origins`.
 
 ## Quick Start
 
@@ -191,19 +186,12 @@ To access from other devices on your network:
    hostname -I
    ```
 
-2. Add to `config.yaml`:
-   ```yaml
-   api:
-     cors_origins:
-       - http://<your-ip>:3000
-   ```
-
-3. Set frontend API URL in `frontend/.env.local`:
+2. Set frontend API URL in `frontend/.env.local`:
    ```
    NEXT_PUBLIC_API_URL=http://<your-ip>:3001
    ```
 
-4. Access from other devices: `http://<your-ip>:3000`
+3. Access from other devices: `http://<your-ip>:3000`
 
 ## Development
 

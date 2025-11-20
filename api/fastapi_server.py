@@ -192,11 +192,12 @@ Connect to `/ws` for streaming robot telemetry at configurable rates (1-50Hz).
     lifespan=lifespan
 )
 
-# Configure CORS from config
-cors_origins = config.get('api', {}).get('cors_origins', ["http://localhost:3000", "http://localhost:3001"])
+# Configure CORS - Allow frontend on port 3000 from any host
+# This allows deployment without configuring specific IPs
+# Regex matches: http://[any-host]:3000 and http://[any-host]:3001
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origin_regex=r"https?://(localhost|[\d\.]+|[a-zA-Z0-9\-\.]+):(3000|3001)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
