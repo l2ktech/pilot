@@ -1587,17 +1587,19 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
       {/* Help Dialog - Keyboard Shortcuts */}
       <Dialog open={helpDialogOpen} onOpenChange={setHelpDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Keyboard Shortcuts</DialogTitle>
             <DialogDescription>
               Available keyboard shortcuts for robot control
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
-            {/* Joint Control */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Joint Control</h3>
+          <div className="grid grid-cols-2 gap-8 py-4">
+            {/* Left Column */}
+            <div className="space-y-6">
+              {/* Joint Control */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Joint Control</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between py-1">
                   <div className="flex gap-2 items-center">
@@ -1643,11 +1645,11 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   <span className="text-sm text-muted-foreground ml-4">Coarse control (step × 5)</span>
                 </div>
               </div>
-            </div>
+              </div>
 
-            {/* Cartesian Movement */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Position)</h3>
+              {/* Cartesian Movement */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Position)</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between py-1">
                   <Kbd>W</Kbd>
@@ -1690,11 +1692,11 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   <span className="text-sm text-muted-foreground ml-4">Coarse position control (step × 5)</span>
                 </div>
               </div>
-            </div>
+              </div>
 
-            {/* Cartesian Rotation */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Rotation)</h3>
+              {/* Cartesian Rotation */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Rotation)</h3>
               <div className="space-y-2">
                 <div className="flex items-start justify-between py-1">
                   <div className="flex gap-2 items-center">
@@ -1727,11 +1729,14 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   <span className="text-sm text-muted-foreground ml-4">Rotate around RZ axis</span>
                 </div>
               </div>
+              </div>
             </div>
 
-            {/* Movement Commands */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Movement Commands</h3>
+            {/* Right Column */}
+            <div className="space-y-6">
+              {/* Movement Commands */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Movement Commands</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between py-1">
                   <Kbd>Space</Kbd>
@@ -1746,11 +1751,11 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   <span className="text-sm text-muted-foreground ml-4">Execute cartesian motion (straight line)</span>
                 </div>
               </div>
-            </div>
+              </div>
 
-            {/* Preset Positions */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Preset Positions</h3>
+              {/* Preset Positions */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Preset Positions</h3>
               <div className="space-y-2">
                 <div className="flex items-start justify-between py-1">
                   <div className="flex gap-2 items-center">
@@ -1763,11 +1768,11 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   <span className="text-sm text-muted-foreground ml-4">Go to preset position 1-9</span>
                 </div>
               </div>
-            </div>
+              </div>
 
-            {/* Timeline */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 text-foreground">Timeline</h3>
+              {/* Timeline */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 text-foreground">Timeline</h3>
               <div className="space-y-2">
                 <div className="flex items-start justify-between py-1">
                   <div className="flex gap-2 items-center">
@@ -1777,6 +1782,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                   </div>
                   <span className="text-sm text-muted-foreground ml-4">Delete selected keyframe(s)</span>
                 </div>
+              </div>
               </div>
             </div>
           </div>
