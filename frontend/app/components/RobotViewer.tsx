@@ -32,7 +32,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
-import { Plus, Settings } from 'lucide-react';
+import { Kbd } from '@/components/ui/kbd';
+import { Plus, Settings, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '../lib/configStore';
 
@@ -800,6 +801,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [presetName, setPresetName] = useState('');
 
+  // Help dialog state
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
+
   // Config store for saving presets
   const { config, saveConfig } = useConfigStore();
 
@@ -1457,6 +1461,17 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         </DropdownMenu>
       </div>
 
+      {/* Help Icon - Below Settings */}
+      <div className="absolute top-[150px] right-4 z-10">
+        <button
+          onClick={() => setHelpDialogOpen(true)}
+          className="bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm hover:bg-black/80 transition-colors"
+          title="Keyboard Shortcuts"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* Target Preset Buttons - Bottom Left */}
       <div className="absolute bottom-4 left-4 bg-black/70 text-white p-3 rounded-lg text-xs z-10 backdrop-blur-sm">
         <div className="flex items-center justify-between mb-2">
@@ -1565,6 +1580,209 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
             </Button>
             <Button onClick={handleSavePreset}>
               Save Preset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Help Dialog - Keyboard Shortcuts */}
+      <Dialog open={helpDialogOpen} onOpenChange={setHelpDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Keyboard Shortcuts</DialogTitle>
+            <DialogDescription>
+              Available keyboard shortcuts for robot control
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* Joint Control */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Joint Control</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>1</Kbd>
+                    <Kbd>2</Kbd>
+                    <Kbd>3</Kbd>
+                    <Kbd>4</Kbd>
+                    <Kbd>5</Kbd>
+                    <Kbd>6</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Select joints J1-J6</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>Esc</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Deselect current joint</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>W</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Increase selected joint angle</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>S</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Decrease selected joint angle</span>
+                </div>
+                <div className="flex items-start justify-between py-1 ml-6">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Shift</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>W</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>S</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Fine control (step ÷ 10)</span>
+                </div>
+                <div className="flex items-start justify-between py-1 ml-6">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Ctrl</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>W</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>S</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Coarse control (step × 5)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cartesian Movement */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Position)</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>W</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move +X direction</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>S</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move -X direction</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>A</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move -Y direction</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>D</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move +Y direction</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>Q</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move -Z direction</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>E</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move +Z direction</span>
+                </div>
+                <div className="flex items-start justify-between py-1 ml-6">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Shift</Kbd>
+                    <span className="text-xs">+</span>
+                    <span className="text-xs">WASDQE</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Fine position control (step ÷ 10)</span>
+                </div>
+                <div className="flex items-start justify-between py-1 ml-6">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Ctrl</Kbd>
+                    <span className="text-xs">+</span>
+                    <span className="text-xs">WASDQE</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Coarse position control (step × 5)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cartesian Rotation */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Rotation)</h3>
+              <div className="space-y-2">
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Alt</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>W</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>S</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Rotate around RX axis</span>
+                </div>
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Alt</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>A</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>D</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Rotate around RY axis</span>
+                </div>
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Alt</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>Q</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>E</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Rotate around RZ axis</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Movement Commands */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Movement Commands</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-1">
+                  <Kbd>Space</Kbd>
+                  <span className="text-sm text-muted-foreground ml-4">Move to target (joint space)</span>
+                </div>
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Shift</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>Space</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Execute cartesian motion (straight line)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Preset Positions */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Preset Positions</h3>
+              <div className="space-y-2">
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Alt</Kbd>
+                    <span className="text-xs">+</span>
+                    <Kbd>1</Kbd>
+                    <span className="text-xs">-</span>
+                    <Kbd>9</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Go to preset position 1-9</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Timeline</h3>
+              <div className="space-y-2">
+                <div className="flex items-start justify-between py-1">
+                  <div className="flex gap-2 items-center">
+                    <Kbd>Delete</Kbd>
+                    <span className="text-xs">/</span>
+                    <Kbd>Backspace</Kbd>
+                  </div>
+                  <span className="text-sm text-muted-foreground ml-4">Delete selected keyframe(s)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setHelpDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
