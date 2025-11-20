@@ -19,12 +19,11 @@ A modern, web-based control system for the PAROL6 6-axis robotic arm featuring r
 
 The system consists of three processes managed by PM2:
 
-```
-┌─────────────┐      HTTP/WS      ┌──────────────┐      UDP       ┌─────────────┐     Serial    ┌──────────┐
-│  Frontend   │ ←────────────────→ │  FastAPI     │ ←────────────→ │  Commander  │ ←────────────→ │  Robot   │
-│  (Next.js)  │                    │   Server     │                │   (Python)  │                │ Hardware │
-│  Port 3000  │                    │  Port 3001   │                │  UDP 5001/2 │                │          │
-└─────────────┘                    └──────────────┘                └─────────────┘                └──────────┘
+```mermaid
+graph LR
+    A[Frontend<br/>Next.js<br/>Port 3000] <-->|HTTP/WebSocket| B[API Server<br/>FastAPI<br/>Port 3001]
+    B <-->|UDP 5001/5002| C[Commander<br/>Python<br/>Control Loop]
+    C <-->|Serial USB| D[Robot<br/>Hardware]
 ```
 
 **Frontend** (Next.js 14)
