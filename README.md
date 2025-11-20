@@ -229,7 +229,7 @@ npm start
 ## API Documentation
 
 ### REST Endpoints
-Full API documentation available at `http://localhost:3001/docs` (Swagger UI)
+Full API documentation available at `http://localhost:3001/redoc`
 
 Key endpoints:
 - `GET /api/robot/status` - Complete robot state
@@ -244,57 +244,6 @@ Connect to `ws://localhost:3001/ws` and subscribe to topics:
 - `status` - Robot state (position, speed, I/O)
 - `logs` - System logs
 - `camera` - Camera feed (if enabled)
-
-## Troubleshooting
-
-### Robot Not Connecting
-```bash
-# Check serial port
-ls -l /dev/ttyACM*
-
-# Test port access
-python3 -c "import serial; serial.Serial('/dev/ttyACM0', 3000000)"
-
-# Check permissions
-groups  # Should include 'dialout'
-```
-
-### PM2 Process Crashes
-```bash
-# View error logs
-pm2 logs --err
-
-# Restart specific process
-pm2 restart frontend
-pm2 restart api
-pm2 restart commander
-
-# Check process status
-pm2 status
-```
-
-### Frontend Can't Connect to API
-1. Verify API is running: `curl http://localhost:3001/health`
-2. Check CORS origins in `config.yaml`
-3. Check frontend API URL in `frontend/.env.local`
-4. Clear browser cache and reload
-
-### IK Solver Fails
-- Check target pose is reachable (run `/api/ik` endpoint to test)
-- Verify URDF model is loaded correctly
-- Check joint limits in `config.yaml`
-- Review IK solver logs for singularity warnings
-
-### Camera Not Working
-```bash
-# List available cameras
-v4l2-ctl --list-devices
-
-# Test camera
-ffplay /dev/video0
-
-# Update config.yaml with correct device
-```
 
 ## Deployment Checklist
 
