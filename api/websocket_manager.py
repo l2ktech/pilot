@@ -10,7 +10,7 @@ from datetime import datetime
 import logging
 import yaml
 from pathlib import Path
-from lib.models.api_models import WebSocketMessage, WebSocketError, RobotStatus
+from api.models import WebSocketMessage, WebSocketError, RobotStatus
 
 logger = logging.getLogger(__name__)
 
