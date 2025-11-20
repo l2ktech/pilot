@@ -264,11 +264,14 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
   // 2. Hardware visual (ghost robot showing feedback)
   // 3. Computation headless (for FK/IK calculations)
   useEffect(() => {
+    logger.info('RobotViewer component mounted - starting URDF load', 'RobotViewer');
     const loader = new URDFLoader();
+    logger.info('URDFLoader created, calling load()', 'RobotViewer');
 
     loader.load(
       '/urdf/PAROL6.urdf',
       (loadedRobot: any) => {
+        logger.info('URDF load SUCCESS callback triggered', 'RobotViewer');
         logger.debug('URDF loaded successfully', 'RobotSetup');
 
         // 1. Commander visual robot (use loaded robot directly)
@@ -464,8 +467,14 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
           applyJointAnglesToUrdf(hardwareRobot, hardwareInitialAngles);
           hardwareRobot.updateMatrixWorld(true);
         }, 500); // Wait 500ms for meshes to load
+      },
+      undefined, // onProgress callback (not used)
+      (error: Error) => {
+        logger.error('URDF load ERROR callback triggered', 'RobotViewer', error);
       }
     );
+
+    logger.info('loader.load() called, waiting for callbacks...', 'RobotViewer');
 
     // Cleanup function to dispose robot resources when component unmounts
     return () => {

@@ -32,6 +32,7 @@ The system consists of three processes managed by PM2:
 - Three.js/React Three Fiber for 3D visualization
 - Zustand for state management
 - WebSocket client for real-time updates
+- Inverse kinematics solver
 
 **API Server** (FastAPI)
 - RESTful HTTP endpoints
@@ -42,7 +43,7 @@ The system consists of three processes managed by PM2:
 - Robot control loop (100Hz)
 - Serial communication with hardware
 - UDP command protocol
-- Motion execution and trajectory planning
+- Motion execution
 
 ## Hardware Requirements
 
@@ -185,12 +186,9 @@ To access from other devices on your network:
    hostname -I
    ```
 
-2. Set frontend API URL in `frontend/.env.local`:
-   ```
-   NEXT_PUBLIC_API_URL=http://<your-ip>:3001
-   ```
+2. Access from other devices: `http://<your-ip>:3000`
 
-3. Access from other devices: `http://<your-ip>:3000`
+The frontend automatically detects the API at the same hostname on port 3001.
 
 ## Development
 
@@ -201,22 +199,20 @@ parol6/
 │   ├── fastapi_server.py   # Main API server
 │   ├── robot_client.py     # UDP client to commander
 │   └── websocket_manager.py
-├── commander/              # Robot control (git submodule)
+├── commander/              # Robot control
 │   ├── commander.py        # Main control loop
 │   └── commands.py         # Command processors
-├── frontend/               # Next.js frontend (git submodule)
+├── frontend/               # Next.js frontend
 │   ├── app/
 │   │   ├── page.tsx        # Main control interface
 │   │   ├── components/     # React components
 │   │   ├── hooks/          # Custom hooks
-│   │   └── lib/            # Utilities & stores
+│   │   └── lib/            # Utilities & stores (includes IK solver)
 │   └── public/
 │       └── urdf/           # Robot URDF model & meshes
 ├── lib/                    # Shared Python libraries
-│   ├── kinematics/         # IK solver
 │   ├── models/             # Data models
 │   └── utils/              # Utilities
-├── rtb-reference/          # Robotics Toolbox (dependency)
 ├── config.yaml             # System configuration
 ├── ecosystem.config.js     # PM2 process config
 └── requirements.txt        # Python dependencies
@@ -356,9 +352,11 @@ ffplay /dev/video0
 
 ## Acknowledgments
 
-Built using:
-- [Robotics Toolbox for Python](https://github.com/petercorke/robotics-toolbox-python) - IK solver
+**Based on:**
+- [PAROL6 Desktop Robot Arm](https://github.com/PCrnjak/PAROL6-Desktop-robot-arm) by PCrnjak - Robot hardware design
+- [PAROL6 Python API](https://github.com/PCrnjak/PAROL6-python-API) by PCrnjak - Commander architecture and serial protocol
+
+**Built with:**
 - [FastAPI](https://fastapi.tiangolo.com/) - API framework
 - [Next.js](https://nextjs.org/) - Frontend framework
 - [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) - 3D visualization
-- [PAROL6](https://github.com/PCrnjak/PAROL6-Desktop-robot-arm) - Robot hardware design
