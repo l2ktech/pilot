@@ -27,6 +27,7 @@ graph LR
 
 ### Detailed Architecture
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'fontSize':'18px'}}}%%
 graph TB
     subgraph Frontend["Frontend (Browser)"]
         UI[UI Components<br/>3D Viewer, Controls, Timeline]
@@ -67,10 +68,14 @@ graph TB
     end
 
     subgraph Hardware["Robot Hardware"]
-        Controller[Microcontroller<br/>Motor Control]
-        Motors[Servo Motors<br/>6-Axis]
-        Sensors[Sensors<br/>Encoders, Limit Switches]
-        IO[Digital I/O<br/>Gripper, E-stop]
+        Controller[Microcontroller]
+        Motors[Servo Motors]
+        Sensors[Sensors & Encoders]
+        IO[Digital I/O]
+
+        Controller --> Motors
+        Controller --> Sensors
+        Controller --> IO
     end
 
     API --> HTTP
@@ -78,15 +83,7 @@ graph TB
     UDPClient -.->|Commands| UDPServer
     UDPServer -.->|ACK + Status| UDPClient
     Logger -.->|Logs| WSServer
-    Serial <-->|Serial| Controller
-    Controller --> Motors
-    Controller --> Sensors
-    Controller --> IO
-
-    style Frontend fill:#e1f5ff
-    style APIServer fill:#fff4e1
-    style Commander fill:#f0e1ff
-    style Hardware fill:#ffe1e1
+    Serial <-->|Serial USB| Controller
 ```
 
 **Key Data Flows:**
