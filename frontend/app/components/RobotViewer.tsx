@@ -1693,7 +1693,10 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                 </div>
               </div>
               </div>
+            </div>
 
+            {/* Right Column */}
+            <div className="space-y-6">
               {/* Cartesian Rotation */}
               <div>
                 <h3 className="font-semibold text-sm mb-3 text-foreground">Cartesian Movement (Rotation)</h3>
@@ -1730,10 +1733,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                 </div>
               </div>
               </div>
-            </div>
 
-            {/* Right Column */}
-            <div className="space-y-6">
               {/* Movement Commands */}
               <div>
                 <h3 className="font-semibold text-sm mb-3 text-foreground">Movement Commands</h3>
