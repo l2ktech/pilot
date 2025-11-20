@@ -113,8 +113,6 @@ See `requirements.txt` for complete list. Key dependencies:
 - uvicorn (ASGI server)
 - pyserial (robot communication)
 - numpy (numerical computing)
-- spatialmath-python (kinematics)
-- roboticstoolbox-python (IK solver)
 - opencv-python (camera support)
 
 ### Node.js Dependencies
