@@ -144,55 +144,14 @@ export default function Timeline() {
           id: containerRef.current,
           headerHeight: 45, // Match outline header height
           rowsStyle: {
-            height: 40,
+            height: 20,
             marginBottom: 3
           }
         });
 
-        // Single "Pose" row showing all keyframes
-        // Each keyframe represents one complete robot pose (all 6 joints)
-        // Sort keyframes by time for proper group assignment
+        // Generate rows with master row and sub-rows for property changes
         const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
-
-        const rows = [{
-          title: 'Pose',
-          keyframes: sortedKeyframes.map((kf, index) => {
-            const isCartesian = kf.motionType === 'cartesian';
-
-            // If this keyframe is cartesian AND there's a previous keyframe,
-            // assign a group to connect them with orange bar
-            let group = undefined;
-            if (isCartesian && index > 0) {
-              group = `cart-${kf.id}`;  // Group ID connecting previous → current
-            }
-
-            // Check if NEXT keyframe is cartesian (this keyframe is the start of cartesian motion)
-            const nextIsCartesian = index < sortedKeyframes.length - 1 &&
-                                   sortedKeyframes[index + 1].motionType === 'cartesian';
-            if (nextIsCartesian) {
-              group = `cart-${sortedKeyframes[index + 1].id}`;  // Same group as next keyframe
-            }
-
-            return {
-              val: kf.time * 1000,
-              selected: false,
-              keyframeId: kf.id,
-              group: group,  // Assign group for orange connecting bar
-              // Apply cyan color for cartesian keyframes (orange is default for joint)
-              style: isCartesian ? {
-                fillColor: '#00bcd4',  // Cyan - distinct from orange default
-                strokeColor: '#00838f' // Dark cyan outline
-              } : undefined
-            };
-          }),
-          hidden: false,
-          // Apply group style for orange interpolation bars
-          groupsStyle: {
-            strokeColor: '#ff9800',
-            fillColor: 'transparent',
-            strokeThickness: 2
-          }
-        }];
+        const rows = generateTimelineRows(sortedKeyframes);
 
         timeline.setModel({
           rows: rows
@@ -204,7 +163,7 @@ export default function Timeline() {
           rows.forEach((row: any, index: number) => {
             const div = document.createElement('div');
             div.className = 'outline-node';
-            const height = 40; // Match row height
+            const height = 20; // Match row height
             const marginBottom = 3; // Match row marginBottom
             div.style.maxHeight = div.style.minHeight = `${height}px`;
             div.style.marginBottom = `${marginBottom}px`;
@@ -247,54 +206,28 @@ export default function Timeline() {
   useEffect(() => {
     if (!timelineRef.current || !isClient) return;
 
-    // Single "Pose" row showing all keyframes
-    // Sort keyframes by time for proper group assignment
+    // Generate rows with master row and sub-rows for property changes
     const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
-
-    const rows = [{
-      title: 'Pose',
-      keyframes: sortedKeyframes.map((kf, index) => {
-        const isCartesian = kf.motionType === 'cartesian';
-
-        // If this keyframe is cartesian AND there's a previous keyframe,
-        // assign a group to connect them with orange bar
-        let group = undefined;
-        if (isCartesian && index > 0) {
-          group = `cart-${kf.id}`;  // Group ID connecting previous → current
-        }
-
-        // Check if NEXT keyframe is cartesian (this keyframe is the start of cartesian motion)
-        const nextIsCartesian = index < sortedKeyframes.length - 1 &&
-                               sortedKeyframes[index + 1].motionType === 'cartesian';
-        if (nextIsCartesian) {
-          group = `cart-${sortedKeyframes[index + 1].id}`;  // Same group as next keyframe
-        }
-
-        return {
-          val: kf.time * 1000,
-          selected: false,
-          keyframeId: kf.id,
-          group: group,  // Assign group for orange connecting bar
-          // Apply cyan color for cartesian keyframes (orange is default for joint)
-          style: isCartesian ? {
-            fillColor: '#00bcd4',  // Cyan - distinct from orange default
-            strokeColor: '#00838f' // Dark cyan outline
-          } : undefined
-        };
-      }),
-      hidden: false,
-      // Apply group style for orange interpolation bars
-      groupsStyle: {
-        strokeColor: '#ff9800',
-        fillColor: 'transparent',
-        strokeThickness: 2
-      }
-    }];
-
-    // Keyframe update complete (removed debug logging)
+    const rows = generateTimelineRows(sortedKeyframes);
 
     try {
       timelineRef.current.setModel({ rows });
+
+      // Update outline labels to match new rows
+      if (outlineRef.current) {
+        outlineRef.current.innerHTML = ''; // Clear existing
+        rows.forEach((row: any, index: number) => {
+          const div = document.createElement('div');
+          div.className = 'outline-node';
+          const height = 20; // Match row height
+          const marginBottom = 3; // Match row marginBottom
+          div.style.maxHeight = div.style.minHeight = `${height}px`;
+          div.style.marginBottom = `${marginBottom}px`;
+          div.innerText = row.title || `Track ${index}`;
+          outlineRef.current?.appendChild(div);
+        });
+      }
+
       // Re-register event handlers after setModel
       registerEventHandlers(timelineRef.current);
     } catch (e) {
@@ -352,6 +285,250 @@ export default function Timeline() {
   const { moveToStartAndPlay, isMovingToStart, moveError, clearError } = usePrePlaybackPosition();
 
   const [recordError, setRecordError] = useState<string | null>(null);
+
+  // Helper function to detect property changes between consecutive keyframes
+  const detectPropertyChanges = (sortedKeyframes: any[]) => {
+    return sortedKeyframes.map((kf, index) => {
+      if (index === 0) {
+        // First keyframe: all properties "changed" (show all dots)
+        return {
+          keyframeId: kf.id,
+          time: kf.time,
+          jointsChanged: true,
+          xChanged: true,
+          yChanged: true,
+          zChanged: true,
+          rxChanged: true,
+          ryChanged: true,
+          rzChanged: true,
+          toolChanged: true,
+          gripperChanged: true,
+        };
+      }
+
+      const prev = sortedKeyframes[index - 1];
+      const threshold = 0.01; // Comparison threshold for float equality
+
+      // Compare each property
+      const jointsChanged = JOINT_NAMES.some(
+        (joint) => Math.abs(kf.jointAngles[joint] - prev.jointAngles[joint]) > threshold
+      );
+
+      const xChanged =
+        Math.abs((kf.cartesianPose?.X || 0) - (prev.cartesianPose?.X || 0)) > threshold;
+      const yChanged =
+        Math.abs((kf.cartesianPose?.Y || 0) - (prev.cartesianPose?.Y || 0)) > threshold;
+      const zChanged =
+        Math.abs((kf.cartesianPose?.Z || 0) - (prev.cartesianPose?.Z || 0)) > threshold;
+      const rxChanged =
+        Math.abs((kf.cartesianPose?.RX || 0) - (prev.cartesianPose?.RX || 0)) > threshold;
+      const ryChanged =
+        Math.abs((kf.cartesianPose?.RY || 0) - (prev.cartesianPose?.RY || 0)) > threshold;
+      const rzChanged =
+        Math.abs((kf.cartesianPose?.RZ || 0) - (prev.cartesianPose?.RZ || 0)) > threshold;
+
+      const toolChanged = kf.toolId !== prev.toolId;
+      const gripperChanged = kf.gripperState !== prev.gripperState;
+
+      return {
+        keyframeId: kf.id,
+        time: kf.time,
+        jointsChanged,
+        xChanged,
+        yChanged,
+        zChanged,
+        rxChanged,
+        ryChanged,
+        rzChanged,
+        toolChanged,
+        gripperChanged,
+      };
+    });
+  };
+
+  // Helper function to generate rows with sub-rows for timeline
+  const generateTimelineRows = (sortedKeyframes: any[]) => {
+    // Detect property changes for all keyframes
+    const changes = detectPropertyChanges(sortedKeyframes);
+
+    // Master "State" row - shows all keyframes (complete robot state)
+    // Make it more prominent: 25% larger, brighter colors
+    const masterRow = {
+      title: 'State',
+      keyframes: sortedKeyframes.map((kf, index) => {
+        const isCartesian = kf.motionType === 'cartesian';
+
+        // Group assignment for cartesian interpolation bars
+        let group = undefined;
+        if (isCartesian && index > 0) {
+          group = `cart-${kf.id}`;
+        }
+
+        const nextIsCartesian =
+          index < sortedKeyframes.length - 1 &&
+          sortedKeyframes[index + 1].motionType === 'cartesian';
+        if (nextIsCartesian) {
+          group = `cart-${sortedKeyframes[index + 1].id}`;
+        }
+
+        return {
+          val: kf.time * 1000,
+          selected: false,
+          keyframeId: kf.id,
+          group: group,
+          // Brighter colors for master row
+          style: isCartesian
+            ? {
+                fillColor: '#00e5ff',  // Bright cyan for cartesian
+                strokeColor: '#00b8d4',
+              }
+            : {
+                fillColor: '#ffc107',  // Bright amber for joint
+                strokeColor: '#ffa000',
+              },
+        };
+      }),
+      hidden: false,
+      rowsStyle: {
+        height: 25,  // 25% larger than sub-rows (20px)
+        marginBottom: 3
+      },
+      groupsStyle: {
+        strokeColor: '#ffb300',  // Brighter orange for cartesian bars
+        fillColor: 'transparent',
+        strokeThickness: 3,  // Thicker line
+      },
+    };
+
+    // Sub-rows - only show dots where properties changed
+    const subRowStyle = { fillColor: '#888', strokeColor: '#666' };
+    const toolStyle = { fillColor: '#ffa500', strokeColor: '#ff8c00' };
+    const gripperStyle = { fillColor: '#00ff00', strokeColor: '#00cc00' };
+
+    const xRow = {
+      title: 'X',
+      keyframes: changes
+        .filter((c) => c.xChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const yRow = {
+      title: 'Y',
+      keyframes: changes
+        .filter((c) => c.yChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const zRow = {
+      title: 'Z',
+      keyframes: changes
+        .filter((c) => c.zChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const rxRow = {
+      title: 'RX',
+      keyframes: changes
+        .filter((c) => c.rxChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const ryRow = {
+      title: 'RY',
+      keyframes: changes
+        .filter((c) => c.ryChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const rzRow = {
+      title: 'RZ',
+      keyframes: changes
+        .filter((c) => c.rzChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: subRowStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const toolRow = {
+      title: 'Tool',
+      keyframes: changes
+        .filter((c) => c.toolChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: toolStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    const gripperRow = {
+      title: 'Gripper',
+      keyframes: changes
+        .filter((c) => c.gripperChanged)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: gripperStyle,
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+    };
+
+    return [
+      masterRow,
+      xRow,
+      yRow,
+      zRow,
+      rxRow,
+      ryRow,
+      rzRow,
+      toolRow,
+      gripperRow,
+    ];
+  };
 
   // Helper function to compute and store cartesianPose for a keyframe
   const computeAndStoreCartesianPose = (keyframeId: string, jointAngles: any) => {

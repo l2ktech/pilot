@@ -264,14 +264,11 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
   // 2. Hardware visual (ghost robot showing feedback)
   // 3. Computation headless (for FK/IK calculations)
   useEffect(() => {
-    logger.info('RobotViewer component mounted - starting URDF load', 'RobotViewer');
     const loader = new URDFLoader();
-    logger.info('URDFLoader created, calling load()', 'RobotViewer');
 
     loader.load(
       '/urdf/PAROL6.urdf',
       (loadedRobot: any) => {
-        logger.info('URDF load SUCCESS callback triggered', 'RobotViewer');
         logger.debug('URDF loaded successfully', 'RobotSetup');
 
         // 1. Commander visual robot (use loaded robot directly)
@@ -279,29 +276,32 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
         robotRef.current = commanderRobot;
         useCommandStore.setState({ commanderRobotRef: commanderRobot });
 
-        // 2. Hardware visual robot (clone)
-        const hardwareRobot = loadedRobot.clone();
-        hardwareRobotRef.current = hardwareRobot;
-        useHardwareStore.setState({ hardwareRobotRef: hardwareRobot });
-
-        // 3. Computation robot (clone, headless - not added to scene)
-        const computationRobot = loadedRobot.clone();
-        // IMPORTANT: Apply the same rotation as the visual robots for coordinate consistency
-        // Visual robots are in <group rotation={[-Math.PI / 2, 0, 0]}>
-        // So we must apply the same rotation to computation robot for FK/IK to match
-        computationRobot.rotation.set(-Math.PI / 2, 0, 0);
-        computationRobot.updateMatrixWorld(true); // Update transforms after rotation
-        useKinematicsStore.setState({ computationRobotRef: computationRobot });
-
-        // Count initial meshes in both robots
-        let commanderMeshCount = 0;
-        let hardwareMeshCount = 0;
-        commanderRobot.traverse((child: any) => { if (child.isMesh) commanderMeshCount++; });
-        hardwareRobot.traverse((child: any) => { if (child.isMesh) hardwareMeshCount++; });
-        logger.debug(`Initial mesh count - Commander: ${commanderMeshCount}, Hardware: ${hardwareMeshCount}`, 'RobotSetup');
-
-        // Wait a bit for meshes to load, then setup both robots
+        // Wait for meshes to load before cloning and setting up robots
         setTimeout(() => {
+          // Count meshes in commander robot after loading
+          let commanderMeshCount = 0;
+          commanderRobot.traverse((child: any) => { if (child.isMesh) commanderMeshCount++; });
+          logger.debug(`Commander robot loaded with ${commanderMeshCount} meshes`, 'RobotSetup');
+
+          // 2. Hardware visual robot (clone AFTER meshes have loaded)
+          const hardwareRobot = commanderRobot.clone();
+          hardwareRobotRef.current = hardwareRobot;
+          useHardwareStore.setState({ hardwareRobotRef: hardwareRobot });
+
+          // 3. Computation robot (clone AFTER meshes have loaded, headless - not added to scene)
+          const computationRobot = commanderRobot.clone();
+          // IMPORTANT: Apply the same rotation as the visual robots for coordinate consistency
+          // Visual robots are in <group rotation={[-Math.PI / 2, 0, 0]}>
+          // So we must apply the same rotation to computation robot for FK/IK to match
+          computationRobot.rotation.set(-Math.PI / 2, 0, 0);
+          computationRobot.updateMatrixWorld(true); // Update transforms after rotation
+          useKinematicsStore.setState({ computationRobotRef: computationRobot });
+
+          // Count meshes in hardware robot after cloning
+          let hardwareMeshCount = 0;
+          hardwareRobot.traverse((child: any) => { if (child.isMesh) hardwareMeshCount++; });
+          logger.debug(`Hardware robot cloned with ${hardwareMeshCount} meshes`, 'RobotSetup');
+
           // === Setup Commander Robot ===
           // Remove L6 mesh only (keep the link for joint transform)
           let commanderL6Removed = 0;
@@ -470,11 +470,9 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
       },
       undefined, // onProgress callback (not used)
       (error: Error) => {
-        logger.error('URDF load ERROR callback triggered', 'RobotViewer', error);
+        logger.error('Failed to load URDF', 'RobotViewer', error);
       }
     );
-
-    logger.info('loader.load() called, waiting for callbacks...', 'RobotViewer');
 
     // Cleanup function to dispose robot resources when component unmounts
     return () => {

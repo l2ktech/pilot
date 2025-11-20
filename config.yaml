@@ -31,9 +31,9 @@ logging:
   buffer_size: 1000
   commander:
     level: INFO
+  file_output: null
   frontend:
     level: DEBUG
-  file_output: null
   initial_log_count: 100
   level: INFO
   log_forward_enabled: true

@@ -295,8 +295,17 @@ class ConnectionManager:
                 # Inject frontend log into backend logging system
                 log_level = level_map.get(level, logging.INFO)
                 frontend_logger = logging.getLogger(f"frontend.{source}")
+
                 # Apply configured frontend log level
                 frontend_logger.setLevel(self.frontend_log_level)
+
+                # Ensure handlers can pass frontend logs through
+                # Frontend loggers propagate to root, so adjust root logger's handlers if needed
+                root_logger = logging.getLogger()
+                for handler in root_logger.handlers:
+                    if handler.level > self.frontend_log_level:
+                        handler.setLevel(self.frontend_log_level)
+
                 frontend_logger.log(log_level, full_message)
 
         except json.JSONDecodeError:
