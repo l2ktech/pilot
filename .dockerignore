@@ -1,0 +1,64 @@
+# Git
+.git
+.gitignore
+.github
+
+# Node modules
+node_modules
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# Python cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.Python
+*.egg-info
+venv
+env
+
+# Development files
+*.md
+!README.md
+DEPLOYMENT.md
+LOGGER_MIGRATION_SUMMARY.md
+PRIMER.md
+frontend/TOOL_STATE_KEYFRAMES_TODO.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+*.log
+logs
+pm2-*.log
+recordings
+test_results
+tests
+backups
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+
+# Docker
+docker-compose.yml
+Dockerfile*
+.dockerignore
+
+# PM2
+ecosystem.config.js
+.pm2
+
+# Temporary
+*_old.*
+*.backup
+*.bak

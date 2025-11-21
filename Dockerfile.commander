@@ -1,0 +1,27 @@
+# Dockerfile for PAROL6 Commander (Robot Control)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libatlas-base-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY commander/ ./commander/
+COPY lib/ ./lib/
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Set working directory to commander
+WORKDIR /app/commander
+
+# Run commander
+CMD ["python3", "commander.py"]

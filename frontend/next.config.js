@@ -3,6 +3,9 @@ const nextConfig = {
   // Disable React Strict Mode for robotics interface to prevent duplicate WebSocket connections
   reactStrictMode: false,
 
+  // Enable standalone output for Docker builds
+  output: 'standalone',
+
   webpack: (config, { isServer }) => {
     // Fix for urdf-loader and three.js in webpack
     config.module.rules.push({

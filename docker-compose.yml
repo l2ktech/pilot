@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Frontend - Next.js Web Interface
+  frontend:
+    image: ghcr.io/jointaxis77/parol6-webcommander/frontend:latest
+    container_name: parol6-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - parol6
+
+  # API Server - FastAPI
+  api:
+    image: ghcr.io/jointaxis77/parol6-webcommander/api:latest
+    container_name: parol6-api
+    ports:
+      - "3001:3001"
+      - "5001:5001/udp"
+      - "5002:5002/udp"
+      - "5003:5003/udp"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - recordings:/app/recordings
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - parol6
+
+  # Commander - Robot Control
+  commander:
+    image: ghcr.io/jointaxis77/parol6-webcommander/commander:latest
+    container_name: parol6-commander
+    network_mode: host  # Required for UDP communication with API
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"  # Serial port mapping - adjust if different
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    # Note: No healthcheck for commander (no HTTP endpoint)
+
+networks:
+  parol6:
+    driver: bridge
+
+volumes:
+  recordings:
+    driver: local

@@ -103,6 +103,54 @@ api:
   port: 3001
 ```
 
+## Docker Deployment (Alternative)
+
+For production deployment, pre-built multi-architecture Docker images are available. This is the recommended method for production environments.
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Serial port access (`/dev/ttyACM0` - adjust if different)
+- `config.yaml` file configured
+
+### Pull and Run
+```bash
+# Create config.yaml first (see Configuration section)
+
+# Pull and start all services
+docker-compose pull
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+### Docker Images
+Pre-built images are automatically published for both `amd64` and `arm64` architectures:
+- `ghcr.io/jointaxis77/parol6-webcommander/frontend:latest`
+- `ghcr.io/jointaxis77/parol6-webcommander/api:latest`
+- `ghcr.io/jointaxis77/parol6-webcommander/commander:latest`
+
+### Serial Port Configuration
+If your robot uses a different serial port, update `docker-compose.yml`:
+```yaml
+commander:
+  devices:
+    - "/dev/ttyUSB0:/dev/ttyUSB0"  # Change to your port
+```
+
+### Building Images Locally (Optional)
+```bash
+# Build all images
+docker build -t parol6-frontend:local -f frontend/Dockerfile frontend/
+docker build -t parol6-api:local -f Dockerfile.api .
+docker build -t parol6-commander:local -f Dockerfile.commander .
+
+# Update docker-compose.yml to use local images
+```
+
 ## Quick Start
 
 ### Start All Processes
