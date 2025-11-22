@@ -1,1 +1,0 @@
-- primary log file: /home/jacob/parol6/logs/parol6.log
