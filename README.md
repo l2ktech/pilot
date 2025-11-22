@@ -105,25 +105,77 @@ api:
 
 ## Docker Deployment (Alternative)
 
-For production deployment, pre-built multi-architecture Docker images are available. This is the recommended method for production environments.
+For production deployment, pre-built Docker images are available. This is the recommended method for production environments.
 
 ### Prerequisites
-- Docker and Docker Compose installed
-- Serial port access (`/dev/ttyACM0` - adjust if different)
-- `config.yaml` file configured
+- Docker and Docker Compose installed ([Install Docker](https://docs.docker.com/engine/install/))
+- Access to robot's serial port (usually `/dev/ttyACM0`)
 
-### Pull and Run
+### Step-by-Step Deployment
+
+**Step 1: Clone the repository**
 ```bash
-# Create config.yaml first (see Configuration section)
+git clone https://github.com/jointAxis77/parol6-webcommander.git
+cd parol6-webcommander
+```
 
-# Pull and start all services
+**Step 2: Create configuration file**
+```bash
+# Copy the example config
+cp config.yaml.example config.yaml
+
+# Edit with your settings
+nano config.yaml
+```
+
+Update these key settings:
+```yaml
+robot:
+  com_port: /dev/ttyACM0    # Your robot's serial port
+  baud_rate: 3000000        # Usually 3000000 for PAROL6
+```
+
+**Step 3: Check serial port**
+```bash
+# Find your robot's serial port
+ls -l /dev/ttyACM* /dev/ttyUSB*
+
+# If your port is different, edit docker-compose.yml:
+# Change the device mapping under 'commander' service
+```
+
+**Step 4: Pull Docker images**
+```bash
 docker-compose pull
+```
+
+**Step 5: Start the system**
+```bash
+# Start all services (frontend, API, commander)
 docker-compose up -d
 
+# Verify containers are running
+docker-compose ps
+```
+
+**Step 6: Access the interface**
+- Open browser to: http://localhost:3000
+- API documentation: http://localhost:3001/docs
+
+**Useful commands:**
+```bash
 # View logs
 docker-compose logs -f
 
-# Stop services
+# View logs for specific service
+docker-compose logs -f frontend
+docker-compose logs -f api
+docker-compose logs -f commander
+
+# Restart services
+docker-compose restart
+
+# Stop everything
 docker-compose down
 ```
 
