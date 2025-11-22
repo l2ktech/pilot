@@ -16,6 +16,7 @@ import { useCommandStore } from './lib/stores/commandStore';
 import { useInputStore } from './lib/stores/inputStore';
 import { useRobotConfigStore } from './lib/stores/robotConfigStore';
 import { useHardwareStore } from './lib/stores/hardwareStore';
+import { useKinematicsStore } from './lib/stores/kinematicsStore';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
@@ -62,21 +63,24 @@ interface Tool {
 }
 
 export default function Home() {
-  // Initialize playback loop
-  usePlayback();
-
-  // Initialize scrubbing (robot follows playhead when not playing)
-  useScrubbing();
-
-  // Enable live control mode - automatically sends move commands when target changes
-  useActualFollowsTarget();
-
   // Fetch config from backend on mount
   const { config, fetchConfig } = useConfigStore();
 
   // Tool management state
   const [tools, setTools] = useState<Tool[]>([]);
+
+  // Initialize playback loop
+  usePlayback(tools); // Pass tools for tool switching during playback
+
+  // Initialize scrubbing (robot follows playhead when not playing)
+  useScrubbing(tools);
+
+  // Enable live control mode - automatically sends move commands when target changes
+  useActualFollowsTarget();
   const [activeToolId, setActiveToolId] = useState<string | null>(null);
+
+  // Get current tool from commandStore (single source of truth for tool state)
+  const commanderTool = useCommandStore((state) => state.commanderTool);
 
   // Timeline collapse state
   const [timelineOpen, setTimelineOpen] = useState(true);
@@ -247,7 +251,30 @@ export default function Home() {
           setTcpOffset('rz', data.tcp_offset.rz ?? 0);
         }
 
-        // Update active tool ID
+        // Find the full tool object from the tools list
+        const selectedTool = tools.find(t => t.id === toolId);
+        console.log('========== handleToolChange ==========');
+        console.log('Tool ID:', toolId);
+        console.log('Selected Tool:', selectedTool);
+        console.log('=====================================');
+
+        if (selectedTool) {
+          // Update commandStore (commander robot visualization)
+          useCommandStore.setState({ commanderTool: selectedTool });
+          console.log('✓ Updated commandStore.commanderTool');
+
+          // Update kinematicsStore (IK computation robot)
+          useKinematicsStore.setState({ computationTool: selectedTool });
+          console.log('✓ Updated kinematicsStore.computationTool');
+
+          // Update hardwareStore (physically mounted tool)
+          useHardwareStore.setState({ hardwareTool: selectedTool });
+          console.log('✓ Updated hardwareStore.hardwareTool');
+
+          logger.debug(`Mounted tool: ${selectedTool.name}`, 'page/handleToolChange');
+        }
+
+        // Update active tool ID (will trigger RobotViewer to load and sync tool)
         setActiveToolId(toolId);
       } else {
         logger.error('Failed to mount tool', 'page', response.statusText);
@@ -337,7 +364,7 @@ export default function Home() {
                 </div>
               </CollapsibleTrigger>
               <CollapsibleContent className={cn("transition-all overflow-visible", timelineOpen ? "h-[356px]" : "h-0")}>
-                <Timeline />
+                <Timeline availableTools={tools} />
               </CollapsibleContent>
             </Card>
           </Collapsible>
@@ -361,7 +388,7 @@ export default function Home() {
           {/* Tool Selector */}
           <div className="bg-card rounded-lg border p-3">
             <Label className="text-sm font-medium mb-2 block">Active Tool</Label>
-            <Select value={activeToolId || ""} onValueChange={handleToolChange}>
+            <Select value={commanderTool?.id || ""} onValueChange={handleToolChange}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select tool..." />
               </SelectTrigger>

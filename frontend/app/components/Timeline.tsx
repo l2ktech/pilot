@@ -15,6 +15,8 @@ import { threeJsToRobot } from '@/app/lib/coordinateTransform';
 import { applyJointAnglesToUrdf } from '@/app/lib/urdfHelpers';
 import KeyframeEditDialog from './KeyframeEditDialog';
 import { logger } from '@/app/lib/logger';
+import type { Tool } from '@/app/lib/types';
+import { getToolForSegment } from '@/app/lib/toolHelpers';
 
 // Add CSS for outline nodes and timeline rows
 if (typeof document !== 'undefined') {
@@ -60,7 +62,11 @@ if (typeof document !== 'undefined') {
   }
 }
 
-export default function Timeline() {
+interface TimelineProps {
+  availableTools: Tool[];
+}
+
+export default function Timeline({ availableTools }: TimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const outlineRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<any>(null);
@@ -705,14 +711,17 @@ export default function Timeline() {
           if (prevKeyframe.cartesianPose && currKeyframe.cartesianPose) {
             const duration = currKeyframe.time - prevKeyframe.time;
 
-            // Compute trajectory using computation robot
+            // Get tool for this segment (uses START keyframe's tool)
+            const segmentTool = getToolForSegment(prevKeyframe, availableTools, computationTool);
+
+            // Compute trajectory using segment-specific tool
             const result = await preCalculateCartesianTrajectory(
               prevKeyframe.cartesianPose,
               currKeyframe.cartesianPose,
               prevKeyframe.jointAngles,
               duration,
               computationRobotRef,
-              computationTool,
+              segmentTool,
               ikAxisMask
             );
 

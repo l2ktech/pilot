@@ -11,17 +11,26 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useTimelineStore } from '@/app/lib/stores/timelineStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { useRobotConfigStore } from '@/app/lib/stores/robotConfigStore';
 import { JOINT_NAMES, JOINT_LIMITS, CARTESIAN_AXES, CARTESIAN_LIMITS } from '@/app/lib/constants';
-import { JointAngles, CartesianPose, JointName, CartesianAxis } from '@/app/lib/types';
+import { JointAngles, CartesianPose, JointName, CartesianAxis, Tool } from '@/app/lib/types';
 import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { calculateTcpPoseFromUrdf } from '@/app/lib/tcpCalculations';
 import { threeJsToRobot } from '@/app/lib/coordinateTransform';
 import { applyJointAnglesToUrdf } from '@/app/lib/urdfHelpers';
 import { ArrowLeftRight, Calculator, AlertCircle } from 'lucide-react';
 import { logger } from '@/app/lib/logger';
+import { getApiBaseUrl } from '@/app/lib/apiConfig';
 
 interface KeyframeEditDialogProps {
   open: boolean;
@@ -47,11 +56,37 @@ export default function KeyframeEditDialog({
   // Local state for editing
   const [localJointAngles, setLocalJointAngles] = useState<JointAngles | null>(null);
   const [localCartesianPose, setLocalCartesianPose] = useState<CartesianPose | null>(null);
+  const [localToolId, setLocalToolId] = useState<string | null>(null);
+  const [localGripperState, setLocalGripperState] = useState<'open' | 'closed' | null>(null);
   const [ikError, setIkError] = useState<string | null>(null);
   const [fkError, setFkError] = useState<string | null>(null);
 
+  // Available tools from backend
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+
   // Track input field values for typing
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
+
+  // Fetch available tools on mount
+  useEffect(() => {
+    const fetchTools = async () => {
+      setToolsLoading(true);
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/api/config/tools`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch tools: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setAvailableTools(data.tools || []);
+      } catch (error) {
+        logger.error('Failed to fetch tools', 'KeyframeEditDialog', error);
+      } finally {
+        setToolsLoading(false);
+      }
+    };
+    fetchTools();
+  }, []);
 
   // Initialize local state when keyframe changes
   useEffect(() => {
@@ -65,6 +100,10 @@ export default function KeyframeEditDialog({
       setLocalCartesianPose(keyframe.cartesianPose || {
         X: 0, Y: 0, Z: 300, RX: 0, RY: 0, RZ: 0
       });
+
+      // Initialize tool state from keyframe
+      setLocalToolId(keyframe.toolId || null);
+      setLocalGripperState(keyframe.gripperState || null);
 
       setIkError(null);
       setFkError(null);
@@ -143,7 +182,20 @@ export default function KeyframeEditDialog({
 
   // Save changes
   const handleSave = () => {
-    updateKeyframeValues(keyframe.id, localJointAngles, localCartesianPose);
+    // Use updateKeyframe instead to include tool state
+    const updates: any = {
+      jointAngles: localJointAngles,
+      cartesianPose: localCartesianPose,
+    };
+    if (localToolId) {
+      updates.toolId = localToolId;
+    }
+    if (localGripperState) {
+      updates.gripperState = localGripperState;
+    }
+
+    const updateKeyframe = useTimelineStore.getState().updateKeyframe;
+    updateKeyframe(keyframe.id, updates);
     onOpenChange(false);
   };
 
@@ -320,6 +372,52 @@ export default function KeyframeEditDialog({
               );
             })}
           </div>
+        </div>
+
+        {/* Tool State Section */}
+        <div className="mt-6 pt-6 border-t space-y-4">
+          <h3 className="text-sm font-semibold">Tool State</h3>
+
+          {/* Tool Selector */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Active Tool</label>
+            <Select
+              value={localToolId || undefined}
+              onValueChange={(value) => setLocalToolId(value)}
+              disabled={toolsLoading}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={toolsLoading ? "Loading tools..." : "Select a tool"} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTools.map((tool) => (
+                  <SelectItem key={tool.id} value={tool.id}>
+                    {tool.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Gripper State Toggle - Only show if selected tool has gripper enabled */}
+          {localToolId && availableTools.find(t => t.id === localToolId)?.gripper_config?.enabled && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Gripper State</label>
+              <ToggleGroup
+                type="single"
+                value={localGripperState || undefined}
+                onValueChange={(value) => setLocalGripperState(value as 'open' | 'closed')}
+                className="justify-start"
+              >
+                <ToggleGroupItem value="open" aria-label="Open gripper">
+                  Open
+                </ToggleGroupItem>
+                <ToggleGroupItem value="closed" aria-label="Close gripper">
+                  Closed
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          )}
         </div>
 
         {/* Footer: Save/Cancel */}

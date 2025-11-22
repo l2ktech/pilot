@@ -81,6 +81,18 @@ export default function CartesianSliders() {
       return;
     }
 
+    // DEBUG: Log tool and target pose
+    console.log('========== IK (Frontend) Button Clicked ==========');
+    console.log('Target TCP Pose:', inputCartesianPose);
+    console.log('Computation Tool:', {
+      id: computationTool.id,
+      name: computationTool.name,
+      tcp_offset: computationTool.tcp_offset
+    });
+    console.log('Seed Joints:', commandedJointAngles);
+    console.log('IK Axis Mask:', ikAxisMask);
+    console.log('==================================================');
+
     logger.debug('Inputs', 'IKSolve', {
       targetPose: inputCartesianPose,
       seedJoints: commandedJointAngles,
@@ -103,6 +115,15 @@ export default function CartesianSliders() {
         computationTool,
         ikAxisMask
       );
+
+      // DEBUG: Log IK result
+      console.log('========== IK Result ==========');
+      console.log('Success:', ikResult.success);
+      console.log('Joint Angles:', ikResult.jointAngles);
+      console.log('Iterations:', ikResult.iterations);
+      console.log('Final Error:', ikResult.finalError);
+      console.log('Error Details:', ikResult.error);
+      console.log('===============================');
 
       logger.debug('Result', 'IKSolve', ikResult);
 

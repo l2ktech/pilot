@@ -220,7 +220,7 @@ class ConnectionManager:
             # Handle subscription updates
             if "subscribe" in data:
                 subscriptions = set(data["subscribe"])
-                valid_types = {'pose', 'joints', 'speeds', 'io', 'gripper', 'status', 'logs'}
+                valid_types = {'pose', 'joints', 'speeds', 'io', 'gripper', 'status', 'logs', 'system'}
                 self.subscriptions[client_id] = subscriptions & valid_types
                 logger.debug(f"Client {client_id[:8]} subscribed to: {list(self.subscriptions[client_id])}")
 

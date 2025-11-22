@@ -23,6 +23,9 @@ export default function ActualTCPVisualizer() {
   // Track last sent position to avoid unnecessary setState calls
   const lastPositionRef = useRef<CartesianPose | null>(null);
 
+  // Get TCP post-rotation from store (live configurable)
+  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
+
   // Reusable objects to prevent memory leaks (don't create new objects every frame!)
   const l6WorldPosition = useRef(new THREE.Vector3());
   const l6WorldQuaternion = useRef(new THREE.Quaternion());
@@ -155,10 +158,18 @@ export default function ActualTCPVisualizer() {
         groupRef.current.quaternion.multiply(tcpRotationQuat.current);
       }
 
-      // Apply fixed post-rotation: -90° around Z axis
+      // Apply configurable post-rotation (if enabled)
       // This aligns the standard arrows with the display coordinate system
-      postRotationQuat.current.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
-      groupRef.current.quaternion.multiply(postRotationQuat.current);
+      if (tcpPostRotation.enabled) {
+        const axisVector = new THREE.Vector3(
+          tcpPostRotation.axis === 'x' ? 1 : 0,
+          tcpPostRotation.axis === 'y' ? 1 : 0,
+          tcpPostRotation.axis === 'z' ? 1 : 0
+        );
+        const angleRad = tcpPostRotation.angleDegrees * Math.PI / 180;
+        postRotationQuat.current.setFromAxisAngle(axisVector, angleRad);
+        groupRef.current.quaternion.multiply(postRotationQuat.current);
+      }
     }
 
     // Store robot coordinates (Z-up) in store - only update if position changed

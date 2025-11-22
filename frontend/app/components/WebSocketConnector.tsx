@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useRobotWebSocket } from '../hooks/useRobotWebSocket';
 import { useHardwareStore, useCommandStore } from '../lib/stores';
 import { useConfigStore } from '../lib/configStore';
+import { useMonitoringStore } from '../lib/stores/monitoringStore';
 
 /**
  * WebSocketConnector - Invisible component that manages WebSocket connection
@@ -19,9 +20,9 @@ export default function WebSocketConnector() {
     connectionState,
     robotData,
   } = useRobotWebSocket(undefined, {
-    topics: config?.frontend.websocket.topics || ['status', 'joints', 'pose', 'io', 'gripper'],
-    rateHz: config?.frontend.websocket.default_rate_hz || 10,
-    logLevel: (config?.logging.level as any) || 'INFO',
+    topics: config?.frontend.websocket.topics,
+    rateHz: config?.frontend.websocket.default_rate_hz,
+    logLevel: config?.logging.level as any,
   });
 
   // Get store actions from hardware store (for actual robot feedback)
@@ -34,6 +35,9 @@ export default function WebSocketConnector() {
 
   // Get homing action from command store (for visual coloring)
   const setJointHomed = useCommandStore((state) => state.setJointHomed);
+
+  // Get monitoring store actions
+  const setCurrentMetrics = useMonitoringStore((state) => state.setCurrentMetrics);
 
   // Track timestamp of last hardware data update
   const lastHardwareUpdateRef = useRef<number | null>(null);
@@ -110,6 +114,13 @@ export default function WebSocketConnector() {
       });
     }
   }, [robotData.status?.homed, setJointHomed]);
+
+  useEffect(() => {
+    // Update system monitoring metrics if available
+    if (robotData.system) {
+      setCurrentMetrics(robotData.system);
+    }
+  }, [robotData.system, setCurrentMetrics]);
 
   // Timeout detection - clear hardware data if no updates received
   useEffect(() => {

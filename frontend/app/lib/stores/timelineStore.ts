@@ -153,7 +153,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
 
     // Get current tool state from commandStore
     const commandStore = useCommandStore.getState();
-    const toolId = commandStore.commanderTool.id;
+    const toolId = commandStore.commanderTool?.id || null;
     const gripperState = commandStore.commandedGripperState;
 
     // Record or update a single keyframe (containing all 6 joint angles) at current time
@@ -166,7 +166,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       // Update existing keyframe with new joint angles, cartesian pose, and tool state
       const updates: Partial<Keyframe> = {
         jointAngles,
-        toolId,
+        ...(toolId && { toolId }),
         gripperState
       };
       if (cartesianPose) {

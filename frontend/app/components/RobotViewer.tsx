@@ -212,9 +212,12 @@ interface URDFRobotProps {
   commanderRobotTransparency: number;
   hardwareJointAngles: any;
   activeToolId?: string;
+  setAvailableTools: (tools: Tool[]) => void;
+  hardwareTool: Tool | null;
+  hardwareGripperState: 'open' | 'closed' | null;
 }
 
-function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, commanderRobotColor, commanderRobotTransparency, hardwareJointAngles, activeToolId }: URDFRobotProps) {
+function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, commanderRobotColor, commanderRobotTransparency, hardwareJointAngles, activeToolId, setAvailableTools, hardwareTool, hardwareGripperState }: URDFRobotProps) {
   const robotRef = useRef<any>(null);
   const hardwareRobotRef = useRef<any>(null);
   const commandedJointAngles = useCommandStore((state) => state.commandedJointAngles);
@@ -223,6 +226,7 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
   const jointHomedStatus = useCommandStore((state) => state.jointHomedStatus);
   const showTargetRobot = useInputStore((state) => state.showTargetRobot);
   const commandedGripperState = useCommandStore((state) => state.commandedGripperState);
+  const commanderToolFromStore = useCommandStore((state) => state.commanderTool);
 
   // Tool mesh state
   const [toolMeshGeometry, setToolMeshGeometry] = useState<THREE.BufferGeometry | null>(null);
@@ -490,29 +494,58 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
   useEffect(() => {
     const fetchAndLoadTool = async () => {
       try {
-        // Fetch active tool from backend
+        logger.debug('Tool mesh loading triggered', 'RobotViewer', {
+          activeToolId,
+          commanderToolFromStore: commanderToolFromStore?.id
+        });
+
+        // Determine which tool to load:
+        // 1. During scrubbing/playback: use commanderToolFromStore (updated by useScrubbing)
+        // 2. During UI selection: use activeToolId prop
+        // 3. On initial load: fetch from backend
+
+        let tool: Tool | null = null;
+        let allTools: Tool[] = [];
+
+        // Always fetch tools list for availableTools state
         const response = await fetch(`${getApiBaseUrl()}/api/config/tools`);
-        if (!response.ok) return;
+        if (!response.ok) {
+          logger.error(`Failed to fetch tools: ${response.status} ${response.statusText}`, 'RobotViewer');
+          return;
+        }
 
         const data = await response.json();
-        const toolId = activeToolId || data.active_tool_id;
+        allTools = data.tools || [];
+        setAvailableTools(allTools);
 
-        // Find the active tool
-        const tool = data.tools?.find((t: Tool) => t.id === toolId);
-        if (!tool) return;
+        // Use tool from store if available (updated by scrubbing), otherwise use activeToolId
+        const effectiveToolId = commanderToolFromStore?.id || activeToolId || data.active_tool_id;
+
+        // Find the tool in the list
+        tool = allTools.find((t: Tool) => t.id === effectiveToolId) || null;
+        if (!tool) {
+          logger.error(`Tool not found: ${effectiveToolId}`, 'RobotViewer', { availableTools: allTools.map((t: Tool) => t.id) });
+          return;
+        }
 
         setCurrentTool(tool);
 
-        // CRITICAL: Sync tool to all three stores for consistent FK/IK
-        useCommandStore.setState({ commanderTool: tool });
-        useHardwareStore.setState({ hardwareTool: tool });
-        useKinematicsStore.setState({ computationTool: tool });
-        logger.debug(`Synced tool to all stores: ${tool.name}`, 'RobotViewer');
+        // Sync tool to commander and kinematics stores for FK/IK
+        // (Only if not already set by scrubbing)
+        // NOTE: Do NOT sync to hardwareStore - hardware tool only changes via mount API
+        if (commanderToolFromStore?.id !== tool.id) {
+          useCommandStore.setState({ commanderTool: tool });
+          useKinematicsStore.setState({ computationTool: tool });
+          logger.debug(`Synced tool to commander/kinematics stores: ${tool.name}`, 'RobotViewer');
+        }
 
         // Load tool mesh if it has one (for non-gripper tools)
         if (tool.mesh_file && !tool.gripper_config?.enabled) {
           const meshResponse = await fetch(`/urdf/meshes/${tool.mesh_file}`);
-          if (!meshResponse.ok) return;
+          if (!meshResponse.ok) {
+            logger.error(`Failed to fetch tool mesh: ${meshResponse.status} ${meshResponse.statusText}`, 'RobotViewer', { mesh_file: tool.mesh_file });
+            return;
+          }
 
           const arrayBuffer = await meshResponse.arrayBuffer();
           const loader = new STLLoader();
@@ -527,6 +560,7 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
           setToolMeshGeometry(geometry);
           setGripperMeshOpen(null);
           setGripperMeshClosed(null);
+          logger.debug(`Tool mesh loaded successfully: ${tool.name} (${tool.mesh_file})`, 'RobotViewer');
         } else if (tool.gripper_config?.enabled) {
           // Load gripper meshes (open and closed states)
           const units = tool.mesh_units || 'mm';
@@ -576,6 +610,10 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
 
           // Clear single mesh state for gripper tools
           setToolMeshGeometry(null);
+          logger.debug(`Gripper tool meshes loaded: ${tool.name}`, 'RobotViewer', {
+            open: tool.gripper_config.mesh_file_open,
+            closed: tool.gripper_config.mesh_file_closed
+          });
         } else {
           // No mesh at all
           setToolMeshGeometry(null);
@@ -588,7 +626,7 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
     };
 
     fetchAndLoadTool();
-  }, [activeToolId]);
+  }, [activeToolId, commanderToolFromStore]); // Watch entire object to detect any tool changes
 
   // Update joint angles for target robot + apply coloring
   useEffect(() => {
@@ -720,14 +758,15 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
       )}
 
       {/* Tool mesh - attached to hardware robot (outside rotated group) */}
-      {showHardwareRobot && hardwareRobotRef.current && (
+      {/* Hardware robot shows PHYSICALLY mounted tool (not timeline tool) */}
+      {showHardwareRobot && hardwareRobotRef.current && hardwareTool && (
         <ToolMesh
           geometry={toolMeshGeometry}
           gripperMeshOpen={gripperMeshOpen}
           gripperMeshClosed={gripperMeshClosed}
-          displayState={commandedGripperState}
+          displayState={hardwareGripperState || 'open'}
           robotRef={hardwareRobotRef.current}
-          tool={currentTool}
+          tool={hardwareTool}
           color={hardwareRobotColor}
         />
       )}
@@ -788,6 +827,10 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   const computationRobotRef = useKinematicsStore((state) => state.computationRobotRef);
   const computationTool = useKinematicsStore((state) => state.computationTool);
 
+  // Hardware store: Actual robot state (separate from commander)
+  const hardwareTool = useHardwareStore((state) => state.hardwareTool);
+  const hardwareGripperState = useHardwareStore((state) => state.gripperStatus);
+
   // Safety confirmation hook
   const { confirmAction, SafetyDialog } = useSafetyConfirmation();
 
@@ -796,6 +839,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   const cartesianPositionStep = useInputStore((state) => state.cartesianPositionStep);
 
   const [showLabels, setShowLabels] = useState(true);
+
+  // Available tools for per-segment tool support
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
 
   // Record preset dialog state
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
@@ -812,6 +858,12 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
   // Track last valid cartesian pose for IK failure recovery
   const lastValidCartesianPose = useRef(inputCartesianPose);
+
+  // Keep ref in sync with external inputCartesianPose changes
+  // (e.g., from timeline pause sync, manual slider changes)
+  useEffect(() => {
+    lastValidCartesianPose.current = inputCartesianPose;
+  }, [inputCartesianPose]);
 
   // Handle going to a preset position
   const handleGoToPosition = async (joints: { J1: number; J2: number; J3: number; J4: number; J5: number; J6: number }, presetName: string) => {
@@ -963,8 +1015,13 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   // Keyboard controls for cartesian TCP adjustment (WASD-QE keys)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      console.log('========== QWEASD Key Pressed ==========');
+      console.log('Key:', event.key);
+      console.log('Motion Mode:', motionMode);
+
       // Only active in cartesian mode
       if (motionMode !== 'cartesian') {
+        console.log('❌ Exiting: Not in cartesian mode');
         return;
       }
 
@@ -974,6 +1031,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         event.target instanceof HTMLTextAreaElement ||
         (event.target as HTMLElement).isContentEditable
       ) {
+        console.log('❌ Exiting: Typing in input field');
         return;
       }
 
@@ -996,10 +1054,14 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       const keyPressed = event.key;
       const keyConfig = keyMap[keyPressed.toLowerCase()];
 
+      console.log('Key Config:', keyConfig);
+
       if (!keyConfig) {
+        console.log('❌ Exiting: Key not in keyMap');
         return;
       }
 
+      console.log('✓ Valid cartesian jog key, preventing default');
       event.preventDefault(); // Prevent page scrolling
 
       // Determine axis (switch to rotation if Alt is pressed)
@@ -1037,22 +1099,38 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       const currentValue = useInputStore.getState().inputCartesianPose[axis];
       const limits = CARTESIAN_LIMITS[axis];
 
+      console.log('Current inputCartesianPose:', useInputStore.getState().inputCartesianPose);
+      console.log('Current value for', axis, ':', currentValue);
+      console.log('Step:', step);
+
       // Calculate new value
       const newValue = currentValue + (keyConfig.direction * step);
 
+      console.log('New value (before clamp):', newValue);
+
       // Clamp to limits
       const clampedValue = Math.max(limits.min, Math.min(limits.max, newValue));
+
+      console.log('Clamped value:', clampedValue);
 
       // Build new cartesian pose with updated value (use fresh store state)
       const currentPose = useInputStore.getState().inputCartesianPose;
       const newCartesianPose = { ...currentPose, [axis]: clampedValue };
 
+      console.log('New cartesian pose for IK:', newCartesianPose);
+      console.log('commanderRobotRef:', commanderRobotRef ? 'EXISTS' : 'NULL');
+      console.log('computationRobotRef:', computationRobotRef ? 'EXISTS' : 'NULL');
+      console.log('computationTool:', computationTool);
+
       // Try to solve IK for the new pose
       if (!commanderRobotRef) {
+        console.log('⚠️ No commanderRobotRef, just updating value without IK');
         // If robot not loaded yet, just update the value
         setInputCartesianValue(axis, clampedValue);
         return;
       }
+
+      console.log('🎯 Calling IK solver...');
 
       const ikResult = inverseKinematicsDetailed(
         newCartesianPose,
@@ -1061,6 +1139,12 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         computationTool,
         ikAxisMask
       );
+
+      console.log('IK Result:', ikResult);
+      console.log('IK Success:', ikResult.success);
+      console.log('IK Joint Angles:', ikResult.jointAngles);
+      console.log('IK Error:', ikResult.error);
+      console.log('=======================================');
 
       if (ikResult.success && ikResult.jointAngles) {
         // IK succeeded - update both cartesian input and commanded joint angles
@@ -1084,7 +1168,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [motionMode, inputCartesianPose, commandedJointAngles, setInputCartesianValue, setCommandedJointAngles, commanderRobotRef, tcpOffset, ikAxisMask]);
+  }, [motionMode, setInputCartesianValue, setCommandedJointAngles, commanderRobotRef, computationRobotRef, computationTool, ikAxisMask, stepAngle, cartesianPositionStep]);
 
   // Spacebar shortcut: Move to Target (Joint) with safety confirmation
   useEffect(() => {
@@ -1515,6 +1599,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
             commanderRobotTransparency={commanderRobotTransparency}
             hardwareJointAngles={hardwareJointAngles}
             activeToolId={activeToolId}
+            setAvailableTools={setAvailableTools}
+            hardwareTool={hardwareTool}
+            hardwareGripperState={hardwareGripperState}
           />
 
           {/* Target TCP visualizer (orange/cyan/magenta) - shows commanded position from target robot */}
@@ -1531,7 +1618,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
           {motionMode === 'cartesian' && <TargetPoseVisualizer />}
 
           {/* Path visualization between timeline keyframes */}
-          <PathVisualizer visible={showPath} />
+          <PathVisualizer visible={showPath} availableTools={availableTools} />
         </Suspense>
         <OrbitControls target={[0, 0.2, 0]} />
 

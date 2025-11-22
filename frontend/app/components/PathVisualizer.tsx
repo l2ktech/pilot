@@ -10,8 +10,10 @@ import { getJointAnglesAtTime } from '../lib/interpolation';
 import { calculateTcpPoseFromUrdf } from '../lib/tcpCalculations';
 import { applyJointAnglesToUrdf } from '../lib/urdfHelpers';
 import { robotToThreeJs } from '../lib/coordinateTransform';
-import type { Keyframe, JointAngles } from '../types';
+import type { Keyframe, JointAngles, Tool } from '../types';
 import { logger } from '../lib/logger';
+import { JOINT_NAMES } from '../lib/constants';
+import { getToolForSegment } from '../lib/toolHelpers';
 
 // Distance-based sampling configuration
 // Path shape is independent of timing - samples based on geometric distance
@@ -30,6 +32,7 @@ function calculateSamplesFromDistance(distanceMm: number): number {
 
 interface PathVisualizerProps {
   visible?: boolean;
+  availableTools: Tool[];
 }
 
 interface PathPoint {
@@ -45,7 +48,7 @@ interface PathSegment {
   endKeyframe: Keyframe;
 }
 
-export default function PathVisualizer({ visible = true }: PathVisualizerProps) {
+export default function PathVisualizer({ visible = true, availableTools }: PathVisualizerProps) {
   const groupRef = useRef<THREE.Group>(null);
 
   // Hover state for orientation gizmo
@@ -74,19 +77,32 @@ export default function PathVisualizer({ visible = true }: PathVisualizerProps) 
       // Motion type is defined by the END keyframe
       const motionType = endKeyframe.motionType || 'joint';
 
+      // Skip segments with no actual motion (e.g., tool-change-only keyframes)
+      // Check if all joint angles are identical between consecutive keyframes
+      const hasMotion = JOINT_NAMES.some(joint =>
+        Math.abs(startKeyframe.jointAngles[joint] - endKeyframe.jointAngles[joint]) > 0.01
+      );
+
+      if (!hasMotion) {
+        continue; // Skip this segment - no motion occurred
+      }
+
+      // Get tool for this segment (uses START keyframe's tool)
+      const segmentTool = getToolForSegment(startKeyframe, availableTools, computationTool);
+
       const points: PathPoint[] = [];
 
       if (motionType === 'joint') {
         // Joint motion: Calculate TCP distance to determine sampling density
         // This makes path shape independent of timing
 
-        // Calculate start TCP position using centralized helper
+        // Calculate start TCP position using segment-specific tool
         applyJointAnglesToUrdf(computationRobotRef, startKeyframe.jointAngles);
-        const startTcpPose = calculateTcpPoseFromUrdf(computationRobotRef, computationTool.tcp_offset);
+        const startTcpPose = calculateTcpPoseFromUrdf(computationRobotRef, segmentTool.tcp_offset);
 
-        // Calculate end TCP position using centralized helper
+        // Calculate end TCP position using segment-specific tool
         applyJointAnglesToUrdf(computationRobotRef, endKeyframe.jointAngles);
-        const endTcpPose = calculateTcpPoseFromUrdf(computationRobotRef, computationTool.tcp_offset);
+        const endTcpPose = calculateTcpPoseFromUrdf(computationRobotRef, segmentTool.tcp_offset);
 
         // Calculate Cartesian distance (in mm)
         let distance = 0;
@@ -111,8 +127,8 @@ export default function PathVisualizer({ visible = true }: PathVisualizerProps) 
             // Apply joint angles to computation robot using centralized helper
             applyJointAnglesToUrdf(computationRobotRef, jointAngles);
 
-            // Calculate TCP pose (returns Three.js coordinates in mm)
-            const tcpPose = calculateTcpPoseFromUrdf(computationRobotRef, computationTool.tcp_offset);
+            // Calculate TCP pose using segment-specific tool (returns Three.js coordinates in mm)
+            const tcpPose = calculateTcpPoseFromUrdf(computationRobotRef, segmentTool.tcp_offset);
 
             if (tcpPose) {
               // tcpPose is in mm, convert to meters for Three.js scene
@@ -201,7 +217,7 @@ export default function PathVisualizer({ visible = true }: PathVisualizerProps) 
     }
 
     return segments;
-  }, [keyframes, trajectoryCache, computationRobotRef, computationTool]);
+  }, [keyframes, trajectoryCache, computationRobotRef, computationTool, availableTools]);
 
   // Clear old geometries when segments change
   useEffect(() => {

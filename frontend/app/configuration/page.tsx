@@ -14,6 +14,8 @@ import { STLLoader } from 'three-stdlib';
 import * as THREE from 'three';
 import { useRobotConfigStore } from '../lib/stores/robotConfigStore';
 import { applyJointAnglesToUrdf } from '../lib/urdfHelpers';
+import { calculateTcpPoseFromUrdf } from '../lib/tcpCalculations';
+import { threeJsToRobot } from '../lib/coordinateTransform';
 import GripperTCPVisualizer from '../components/GripperTCPVisualizer';
 import ToolCard from '../components/ToolCard';
 import ToolMountDialog from '../components/ToolMountDialog';
@@ -44,6 +46,37 @@ interface Tool {
     ry: number;
     rz: number;
   };
+}
+
+// TCP Orientation Tracker - calculates and reports TCP orientation
+function TCPOrientationTracker({
+  robotRef,
+  tcpOffset,
+  onOrientationUpdate
+}: {
+  robotRef: any;
+  tcpOffset: { x: number; y: number; z: number; rx: number; ry: number; rz: number };
+  onOrientationUpdate: (rx: number, ry: number, rz: number) => void;
+}) {
+  useFrame(() => {
+    if (!robotRef) return;
+
+    try {
+      // Calculate TCP pose from URDF (returns Three.js Y-up coordinates)
+      // Note: Post-rotation is NOT applied here - it's only a visual correction for the gizmo arrows
+      const tcpPose = calculateTcpPoseFromUrdf(robotRef, tcpOffset);
+
+      if (tcpPose) {
+        // Convert to robot coordinates (Z-up) to get proper RX, RY, RZ angles
+        const robotPose = threeJsToRobot(tcpPose);
+        onOrientationUpdate(robotPose.rx, robotPose.ry, robotPose.rz);
+      }
+    } catch (error) {
+      // Silently handle errors
+    }
+  });
+
+  return null; // This component doesn't render anything
 }
 
 // Static URDF Robot Component (no controls, fixed pose, no L6)
@@ -272,6 +305,10 @@ export default function ConfigurationPage() {
   const [meshOffset, setMeshOffset] = useState({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }); // Manual offset adjustment (position + rotation)
   const [tcpOffset, setTcpOffset] = useState({ x: 0, y: -45.2, z: -62.8, rx: 90, ry: 180, rz: 0 }); // TCP offset (position in mm, rotation in degrees)
 
+  // TCP Post-Rotation state (from store for live tuning)
+  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
+  const setTcpPostRotation = useRobotConfigStore((state) => state.setTcpPostRotation);
+
   // Gripper I/O configuration state
   const [gripperEnabled, setGripperEnabled] = useState(false);
   const [gripperIoPin, setGripperIoPin] = useState<1 | 2>(1);
@@ -287,6 +324,9 @@ export default function ConfigurationPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
+
+  // TCP orientation tracking (for live display during tuning)
+  const [currentTcpOrientation, setCurrentTcpOrientation] = useState<{ rx: number; ry: number; rz: number }>({ rx: 0, ry: 0, rz: 0 });
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1297,6 +1337,99 @@ export default function ConfigurationPage() {
               </div>
             )}
 
+            {/* Current TCP Orientation Display */}
+            {(selectedToolId || isCreatingNew) && (
+              <div className="mt-2 p-2 bg-card border rounded">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium">Current TCP Orientation</label>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="text-center">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">RX</div>
+                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.rx ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
+                      {(currentTcpOrientation.rx ?? 0).toFixed(1)}°
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">RY</div>
+                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.ry ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
+                      {(currentTcpOrientation.ry ?? 0).toFixed(1)}°
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-muted-foreground mb-0.5">RZ</div>
+                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.rz ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
+                      {(currentTcpOrientation.rz ?? 0).toFixed(1)}°
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[9px] text-muted-foreground mt-1.5 text-center">
+                  🎯 Goal: All values close to 0° with gizmo aligned to world axes
+                </div>
+              </div>
+            )}
+
+            {/* TCP Post-Rotation Configuration (Live Tuning) */}
+            {(selectedToolId || isCreatingNew) && (
+              <div className="mt-2 p-2 bg-card border rounded">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium">TCP Post-Rotation (Live Tuning)</label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setTcpPostRotation({ axis: 'z', angleDegrees: 0, enabled: true })}
+                    className="h-6 px-2 text-[10px]"
+                  >
+                    Reset
+                  </Button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Rotation Axis</label>
+                    <Select
+                      value={tcpPostRotation.axis}
+                      onValueChange={(value: 'x' | 'y' | 'z') => setTcpPostRotation({ axis: value })}
+                    >
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="x">X Axis</SelectItem>
+                        <SelectItem value="y">Y Axis</SelectItem>
+                        <SelectItem value="z">Z Axis</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">Angle (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={tcpPostRotation.angleDegrees}
+                      onChange={(e) => setTcpPostRotation({ angleDegrees: parseFloat(e.target.value) || 0 })}
+                      placeholder="Angle"
+                      className="w-full h-7 px-1.5 text-xs bg-background border rounded text-center"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-muted-foreground">Enabled</label>
+                    <Switch
+                      checked={tcpPostRotation.enabled}
+                      onCheckedChange={(checked) => setTcpPostRotation({ enabled: checked })}
+                      className="scale-75"
+                    />
+                  </div>
+
+                  <div className="text-[9px] text-muted-foreground mt-1.5 p-1.5 bg-muted/30 rounded">
+                    💡 Adjust these values in real-time to align TCP gizmo orientation. When RX=RY=RZ=0, the gizmo should align with world axes.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Gripper I/O Configuration */}
             {(selectedToolId || isCreatingNew) && (
               <div className="mt-2 p-2 bg-card border rounded">
@@ -1412,6 +1545,13 @@ export default function ConfigurationPage() {
 
               {/* TCP Gizmo (orange/cyan/magenta arrows) - shows functional tool center point */}
               <GripperTCPVisualizer robotRef={robot} tcpOffset={tcpOffset} />
+
+              {/* TCP Orientation Tracker - calculates and reports orientation angles */}
+              <TCPOrientationTracker
+                robotRef={robot}
+                tcpOffset={tcpOffset}
+                onOrientationUpdate={(rx, ry, rz) => setCurrentTcpOrientation({ rx, ry, rz })}
+              />
             </Suspense>
 
             <OrbitControls target={[0, 0.2, 0]} />

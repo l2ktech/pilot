@@ -13,7 +13,8 @@ import { robotToThreeJs } from '@/app/lib/coordinateTransform';
  * NOTE: Input pose is in robot coordinates (Z-up), converted to Three.js (Y-up) for rendering
  */
 export default function TargetPoseVisualizer() {
-  const groupRef = useRef<THREE.Group>(null);
+  const parentGroupRef = useRef<THREE.Group>(null);  // Coordinate frame wrapper (-90° X)
+  const groupRef = useRef<THREE.Group>(null);         // User orientation (RX, RY, RZ)
   const xArrowRef = useRef<THREE.ArrowHelper | null>(null);
   const yArrowRef = useRef<THREE.ArrowHelper | null>(null);
   const zArrowRef = useRef<THREE.ArrowHelper | null>(null);
@@ -35,7 +36,7 @@ export default function TargetPoseVisualizer() {
     const arrowHeadLength = arrowLength * 0.2;
     const arrowHeadWidth = arrowLength * 0.15;
 
-    // X axis - Red (user X = viewport X)
+    // X axis - Red (standard +X direction)
     xArrowRef.current = new THREE.ArrowHelper(
       new THREE.Vector3(1, 0, 0),
       new THREE.Vector3(0, 0, 0),
@@ -45,9 +46,9 @@ export default function TargetPoseVisualizer() {
       arrowHeadWidth
     );
 
-    // Y axis - Green (user Y = -viewport Z)
+    // Y axis - Green (standard +Y direction)
     yArrowRef.current = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(0, 0, 0),
       arrowLength,
       0x00ff00,
@@ -55,9 +56,9 @@ export default function TargetPoseVisualizer() {
       arrowHeadWidth
     );
 
-    // Z axis - Blue (user Z = viewport Y)
+    // Z axis - Blue (standard +Z direction)
     zArrowRef.current = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1),
       new THREE.Vector3(0, 0, 0),
       arrowLength,
       0x0000ff,
@@ -88,28 +89,33 @@ export default function TargetPoseVisualizer() {
 
   // Update input pose position and orientation every frame
   useFrame(() => {
-    if (!groupRef.current) return;
+    if (!parentGroupRef.current || !groupRef.current) return;
 
     // Convert input pose from robot coordinates (Z-up) to Three.js (Y-up) for rendering
     const threeJsPose = robotToThreeJs(inputCartesianPose);
 
-    // Set position in Three.js space (convert mm to meters)
-    groupRef.current.position.set(
+    // Set parent position in Three.js space (convert mm to meters)
+    parentGroupRef.current.position.set(
       threeJsPose.X / 1000,   // X (same in both)
       threeJsPose.Y / 1000,   // Y (was robot Z)
       threeJsPose.Z / 1000    // Z (was robot -Y)
     );
 
-    // Update rotation from input orientation (convert degrees to radians)
-    // Transform robot coordinate rotations to Three.js coordinate rotations
-    // Robot Z-up → Three.js Y-up requires: RX stays, RY→-RZ, RZ→RY
-    groupRef.current.rotation.order = 'ZXY';
+    // Parent: Apply coordinate frame wrapper (-90° around X) to match URDF
+    parentGroupRef.current.rotation.set(-Math.PI / 2, 0, 0, 'XYZ');
+
+    // Child: Apply user's robot coordinate orientation (RX, RY, RZ)
+    groupRef.current.rotation.order = 'XYZ';
     groupRef.current.rotation.set(
-      (inputCartesianPose.RX * Math.PI) / 180,   // RX stays same
-      (inputCartesianPose.RZ * Math.PI) / 180,   // Robot RZ → Three.js RY
-      (-inputCartesianPose.RY * Math.PI) / 180   // Robot RY → Three.js -RZ (negated!)
+      (inputCartesianPose.RX * Math.PI) / 180,  // Rotation around robot X
+      (inputCartesianPose.RY * Math.PI) / 180,  // Rotation around robot Y
+      (inputCartesianPose.RZ * Math.PI) / 180   // Rotation around robot Z
     );
   });
 
-  return <group ref={groupRef} />;
+  return (
+    <group ref={parentGroupRef}>
+      <group ref={groupRef} />
+    </group>
+  );
 }

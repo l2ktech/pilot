@@ -4,11 +4,12 @@ import { useCommandStore } from '@/app/lib/stores/commandStore';
 import { useRobotConfigStore } from '@/app/lib/stores/robotConfigStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { useInputStore } from '@/app/lib/stores/inputStore';
-import { getJointAnglesAtTime, getCartesianPoseAtTime, shouldUseCartesianInterpolation } from '@/app/lib/interpolation';
+import { getJointAnglesAtTime, getCartesianPoseAtTime, shouldUseCartesianInterpolation, getGripperStateAtTime } from '@/app/lib/interpolation';
 import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { DEFAULT_FPS } from '@/app/lib/constants';
 import { moveJoints, executeTrajectory } from '@/app/lib/api';
 import { generateCartesianWaypoints, arrayToPose, poseToArray, calculateWaypointCount } from '@/app/lib/cartesianPlanner';
+import { getToolAtTime } from '@/app/lib/toolHelpers';
 import { JointAngles, CartesianPose, Tool } from '@/app/lib/types';
 import { logger } from '@/app/lib/logger';
 
@@ -275,8 +276,9 @@ export async function preCalculateCartesianTrajectory(
 
 /**
  * Playback loop hook - runs at 60fps when playing
+ * @param availableTools - Array of all available tools for tool switching during playback
  */
-export function usePlayback() {
+export function usePlayback(availableTools: Tool[] = []) {
   const isPlaying = useTimelineStore((state) => state.playbackState.isPlaying);
   const executeOnRobot = useTimelineStore((state) => state.playbackState.executeOnRobot);
   const currentTime = useTimelineStore ((state) => state.playbackState.currentTime);
@@ -457,6 +459,42 @@ export function usePlayback() {
 
       // Update lastTime for next frame
       lastTime.current = elapsed;
+
+      // Update tool based on current timeline position (same pattern as useScrubbing)
+      if (availableTools.length > 0 && keyframes.length > 0) {
+        const computationTool = useKinematicsStore.getState().computationTool;
+        const currentTool = getToolAtTime(keyframes, elapsed, availableTools, computationTool);
+
+        // Always update stores to force object reference change
+        // This ensures mesh reload triggers during playback
+        useKinematicsStore.setState({ computationTool: currentTool });
+        useCommandStore.setState({ commanderTool: currentTool });
+
+        // Sync TCP offset to robotConfigStore (for TCP visualizers and UI components)
+        if (currentTool?.tcp_offset) {
+          useRobotConfigStore.setState({
+            tcpOffset: {
+              x: currentTool.tcp_offset.x,
+              y: currentTool.tcp_offset.y,
+              z: currentTool.tcp_offset.z,
+              rx: currentTool.tcp_offset.rx ?? 0,
+              ry: currentTool.tcp_offset.ry ?? 0,
+              rz: currentTool.tcp_offset.rz ?? 0
+            }
+          });
+        }
+      }
+
+      // Update gripper state based on current timeline position (same as useScrubbing)
+      if (keyframes.length > 0) {
+        const currentGripperState = getGripperStateAtTime(keyframes, elapsed);
+        const currentCommandedState = useCommandStore.getState().commandedGripperState;
+
+        // Only update if changed (avoid unnecessary renders)
+        if (currentGripperState !== currentCommandedState) {
+          useCommandStore.setState({ commandedGripperState: currentGripperState });
+        }
+      }
 
       // Per-keyframe motion type interpolation
       // Check if we should use cartesian interpolation (moving TO a cartesian keyframe)

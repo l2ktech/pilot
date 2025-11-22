@@ -15,13 +15,17 @@ import type { CartesianPose } from '@/app/lib/types';
  * Converts from Three.js coordinates (Y-up) to robot coordinates (Z-up) before storing
  */
 export default function TargetTCPVisualizer() {
-  const groupRef = useRef<THREE.Group>(null);
+  const parentGroupRef = useRef<THREE.Group>(null);  // Coordinate frame wrapper (-90° X)
+  const groupRef = useRef<THREE.Group>(null);         // TCP orientation
   const xArrowRef = useRef<THREE.ArrowHelper | null>(null);
   const yArrowRef = useRef<THREE.ArrowHelper | null>(null);
   const zArrowRef = useRef<THREE.ArrowHelper | null>(null);
 
   // Track last sent position to avoid unnecessary setState calls
   const lastPositionRef = useRef<CartesianPose | null>(null);
+
+  // Get TCP post-rotation from store (live configurable)
+  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
 
   // Reusable objects to prevent memory leaks (don't create new objects every frame!)
   const l6WorldPosition = useRef(new THREE.Vector3());
@@ -102,7 +106,7 @@ export default function TargetTCPVisualizer() {
 
   // Update commander TCP position every frame from commander URDF robot model
   useFrame(() => {
-    if (!groupRef.current || !commanderRobotRef) return;
+    if (!parentGroupRef.current || !groupRef.current || !commanderRobotRef) return;
 
     // Calculate TCP pose from URDF (returns Three.js coordinates)
     const threeJsPose = calculateTcpPoseFromUrdf(commanderRobotRef, tcpOffset);
@@ -129,28 +133,20 @@ export default function TargetTCPVisualizer() {
       worldOffset.current.copy(localOffset.current).applyQuaternion(l6WorldQuaternion.current);
       tcpWorldPosition.current.copy(l6WorldPosition.current).add(worldOffset.current);
 
-      groupRef.current.position.copy(tcpWorldPosition.current);
+      // Set parent position
+      parentGroupRef.current.position.copy(tcpWorldPosition.current);
 
-      // Apply TCP orientation offset to gizmo
-      // Start with L6 orientation
-      groupRef.current.quaternion.copy(l6WorldQuaternion.current);
+      // Parent: Apply coordinate frame wrapper (-90° around X) to match URDF
+      parentGroupRef.current.rotation.set(-Math.PI / 2, 0, 0, 'XYZ');
 
-      // Apply user-configurable TCP rotation
-      if (tcpOffset.rx !== 0 || tcpOffset.ry !== 0 || tcpOffset.rz !== 0) {
-        tcpRotationEuler.current.set(
-          tcpOffset.rx * Math.PI / 180,
-          tcpOffset.ry * Math.PI / 180,
-          tcpOffset.rz * Math.PI / 180,
-          'XYZ'
-        );
-        tcpRotationQuat.current.setFromEuler(tcpRotationEuler.current);
-        groupRef.current.quaternion.multiply(tcpRotationQuat.current);
-      }
-
-      // Apply fixed post-rotation: -90° around Z axis
-      // This aligns the standard arrows with the display coordinate system
-      postRotationQuat.current.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
-      groupRef.current.quaternion.multiply(postRotationQuat.current);
+      // Child: Apply TCP orientation from robot coordinates (same approach as RGB gizmo)
+      // robotPose already has RX, RY, RZ in robot coordinate frame
+      groupRef.current.rotation.order = 'XYZ';
+      groupRef.current.rotation.set(
+        (robotPose.RX * Math.PI) / 180,  // Rotation around robot X
+        (robotPose.RY * Math.PI) / 180,  // Rotation around robot Y
+        (robotPose.RZ * Math.PI) / 180   // Rotation around robot Z
+      );
     }
 
     // Store robot coordinates (Z-up) in store - only update if position changed
@@ -160,5 +156,9 @@ export default function TargetTCPVisualizer() {
     }
   });
 
-  return <group ref={groupRef} />;
+  return (
+    <group ref={parentGroupRef}>
+      <group ref={groupRef} />
+    </group>
+  );
 }

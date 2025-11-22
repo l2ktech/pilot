@@ -5,11 +5,12 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const tabs = [
-  { name: 'Control', href: '/control' },
+  { name: 'Control', href: '/' },
   { name: 'Configuration', href: '/configuration' },
   { name: 'Camera', href: '/camera' },
   { name: 'Logs', href: '/logs' },
   { name: 'Performance', href: '/performance' },
+  { name: 'Monitoring', href: '/monitoring' },
   { name: 'Settings', href: '/settings' },
 ];
 

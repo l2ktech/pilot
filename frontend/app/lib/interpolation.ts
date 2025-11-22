@@ -168,3 +168,31 @@ export function shouldUseCartesianInterpolation(
   // Not between keyframes, use joint by default
   return false;
 }
+
+/**
+ * Get gripper state at a specific time.
+ * Returns the most recent keyframe's gripperState before or at the given time.
+ * Similar to how tool state is determined in toolHelpers.ts.
+ *
+ * @param keyframes - Array of keyframes
+ * @param time - Current timeline time in seconds
+ * @returns Gripper state ('open' | 'closed'), defaults to 'open' if no state found
+ */
+export function getGripperStateAtTime(
+  keyframes: Keyframe[],
+  time: number
+): 'open' | 'closed' {
+  // Sort keyframes by time
+  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+
+  // Find current or most recent keyframe with a gripperState
+  // Walk backwards from current time
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (sorted[i].time <= time && sorted[i].gripperState !== undefined) {
+      return sorted[i].gripperState;
+    }
+  }
+
+  // No gripper state found in any keyframe before this time - default to 'open'
+  return 'open';
+}

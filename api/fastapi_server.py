@@ -22,6 +22,7 @@ import logging
 from typing import Optional, Dict, Any
 import uuid
 from datetime import datetime
+import time
 import yaml
 import json
 import xml.etree.ElementTree as ET
@@ -36,6 +37,8 @@ from api.utils.logging_handler import get_websocket_handler, setup_logging
 from camera_manager import get_camera_manager
 
 import numpy as np
+import psutil
+import subprocess
 
 # Configuration file path
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -66,6 +69,7 @@ logger = logging.getLogger('api')
 # Global variables
 manager = ConnectionManager()
 robot_status_task: Optional[asyncio.Task] = None
+system_status_task: Optional[asyncio.Task] = None
 command_results: Dict[str, CommandAcknowledgment] = {}
 
 # Connect WebSocket handler to manager
@@ -131,8 +135,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting FastAPI server for PAROL6 Robot")
 
     # Start background task for robot status streaming
-    global robot_status_task, udp_log_task
+    global robot_status_task, system_status_task, udp_log_task
     robot_status_task = asyncio.create_task(stream_robot_status())
+    system_status_task = asyncio.create_task(stream_system_status())
 
     # Start UDP log receiver if enabled
     if config.get('server', {}).get('log_forward_enabled', True):
@@ -146,6 +151,13 @@ async def lifespan(app: FastAPI):
         robot_status_task.cancel()
         try:
             await robot_status_task
+        except asyncio.CancelledError:
+            pass
+
+    if system_status_task:
+        system_status_task.cancel()
+        try:
+            await system_status_task
         except asyncio.CancelledError:
             pass
 
@@ -359,6 +371,84 @@ async def stream_robot_status():
             await asyncio.sleep(1.0)  # Back off on error
 
 
+async def stream_system_status():
+    """Background task to stream system metrics via WebSocket"""
+    logger.info("Starting system status streaming task")
+
+    while True:
+        try:
+            # Only fetch and broadcast if we have connected clients subscribed to 'system' topic
+            if manager.get_connection_count() > 0:
+                # Check if any clients are subscribed to 'system'
+                system_subscribers = [cid for cid in manager.active_connections.keys()
+                                    if 'system' in manager.subscriptions.get(cid, set())]
+                if len(system_subscribers) == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+
+                logger.info(f"Broadcasting system metrics to {len(system_subscribers)} clients")
+                # Get system metrics
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                cpu_per_core = psutil.cpu_percent(interval=0.1, percpu=True)
+                cpu_temp = get_cpu_temperature()
+                memory = psutil.virtual_memory()
+                disk = psutil.disk_usage('/')
+                pm2_processes = get_pm2_status()
+                uptime = get_system_uptime()
+
+                system_metrics = {
+                    "timestamp": datetime.now().isoformat(),
+                    "cpu": {
+                        "percent": cpu_percent,
+                        "per_core": cpu_per_core,
+                        "temperature": cpu_temp,
+                        "count": psutil.cpu_count()
+                    },
+                    "memory": {
+                        "percent": memory.percent,
+                        "used_mb": memory.used / (1024 ** 2),
+                        "total_mb": memory.total / (1024 ** 2),
+                        "available_mb": memory.available / (1024 ** 2)
+                    },
+                    "disk": {
+                        "percent": disk.percent,
+                        "used_gb": disk.used / (1024 ** 3),
+                        "total_gb": disk.total / (1024 ** 3),
+                        "free_gb": disk.free / (1024 ** 3)
+                    },
+                    "pm2_processes": pm2_processes,
+                    "uptime_seconds": uptime
+                }
+
+                # Broadcast to clients subscribed to 'system' topic
+                # Send directly to each subscribed client
+                for client_id, websocket in list(manager.active_connections.items()):
+                    # Check if client is subscribed to 'system' topic
+                    if 'system' in manager.subscriptions.get(client_id, set()):
+                        try:
+                            system_message = {
+                                "type": "system",
+                                "data": system_metrics,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            message_json = json.dumps(system_message, default=str)
+                            logger.info(f"Sending {len(message_json)} bytes to client {client_id[:8]}")
+                            await websocket.send_text(message_json)
+                            logger.info(f"Successfully sent to {client_id[:8]}")
+                        except Exception as e:
+                            logger.error(f"Error sending system data to {client_id}: {e}")
+
+            # Update at 1 Hz (less frequent than robot data)
+            await asyncio.sleep(1.0)
+
+        except asyncio.CancelledError:
+            logger.info("System status streaming task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in system status streaming: {e}")
+            await asyncio.sleep(2.0)  # Back off on error
+
+
 def execute_robot_command(func, *args, **kwargs) -> CommandResponse:
     """Execute a robot command and return response"""
     try:
@@ -416,6 +506,76 @@ def execute_robot_command(func, *args, **kwargs) -> CommandResponse:
 
 
 # ============================================================================
+# System Monitoring Helpers
+# ============================================================================
+
+def get_cpu_temperature() -> Optional[float]:
+    """Get CPU temperature from Raspberry Pi thermal zone"""
+    try:
+        # Try primary thermal zone (CPU)
+        temp_path = Path("/sys/class/thermal/thermal_zone0/temp")
+        if temp_path.exists():
+            temp_str = temp_path.read_text().strip()
+            return float(temp_str) / 1000.0  # Convert millidegrees to degrees
+    except Exception as e:
+        logger.debug(f"Could not read CPU temperature: {e}")
+
+    # Fallback: try vcgencmd for GPU temperature
+    try:
+        result = subprocess.run(
+            ["vcgencmd", "measure_temp"],
+            capture_output=True,
+            text=True,
+            timeout=1
+        )
+        if result.returncode == 0:
+            # Output format: temp=42.8'C
+            temp_str = result.stdout.strip().split("=")[1].split("'")[0]
+            return float(temp_str)
+    except Exception as e:
+        logger.debug(f"Could not read GPU temperature via vcgencmd: {e}")
+
+    return None
+
+
+def get_pm2_status() -> list:
+    """Get PM2 process status via pm2 jlist command"""
+    try:
+        result = subprocess.run(
+            ["pm2", "jlist"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            processes = json.loads(result.stdout)
+            return [
+                {
+                    "name": p.get("name"),
+                    "pid": p.get("pid"),
+                    "status": p.get("pm2_env", {}).get("status"),
+                    "cpu": p.get("monit", {}).get("cpu", 0),
+                    "memory": p.get("monit", {}).get("memory", 0),
+                    "uptime": p.get("pm2_env", {}).get("pm_uptime"),
+                    "restarts": p.get("pm2_env", {}).get("restart_time", 0),
+                }
+                for p in processes
+            ]
+    except Exception as e:
+        logger.error(f"Could not get PM2 status: {e}")
+
+    return []
+
+
+def get_system_uptime() -> float:
+    """Get system uptime in seconds"""
+    try:
+        return time.time() - psutil.boot_time()
+    except Exception:
+        return 0.0
+
+
+# ============================================================================
 # REST API Endpoints
 # ============================================================================
 
@@ -441,6 +601,103 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "websocket_clients": manager.get_connection_count()
     }
+
+
+# System Monitoring Endpoints
+@app.get("/api/system/status")
+async def get_system_status():
+    """
+    Get comprehensive system health metrics including CPU, memory, disk,
+    temperature, and PM2 process status.
+    """
+    try:
+        # Get CPU info
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        cpu_per_core = psutil.cpu_percent(interval=0.1, percpu=True)
+        cpu_temp = get_cpu_temperature()
+
+        # Get memory info
+        memory = psutil.virtual_memory()
+
+        # Get disk info
+        disk = psutil.disk_usage('/')
+
+        # Get PM2 process info
+        pm2_processes = get_pm2_status()
+
+        # Get uptime
+        uptime = get_system_uptime()
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "cpu": {
+                "percent": cpu_percent,
+                "per_core": cpu_per_core,
+                "temperature": cpu_temp,
+                "count": psutil.cpu_count()
+            },
+            "memory": {
+                "percent": memory.percent,
+                "used_mb": memory.used / (1024 ** 2),
+                "total_mb": memory.total / (1024 ** 2),
+                "available_mb": memory.available / (1024 ** 2)
+            },
+            "disk": {
+                "percent": disk.percent,
+                "used_gb": disk.used / (1024 ** 3),
+                "total_gb": disk.total / (1024 ** 3),
+                "free_gb": disk.free / (1024 ** 3)
+            },
+            "pm2_processes": pm2_processes,
+            "uptime_seconds": uptime
+        }
+    except Exception as e:
+        logger.error(f"Error getting system status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get system status: {str(e)}")
+
+
+@app.post("/api/system/restart/{process_name}")
+async def restart_pm2_process(process_name: str):
+    """
+    Restart a specific PM2 process by name.
+    Valid process names: parol-nextjs, parol-commander, parol-api
+    """
+    try:
+        # Validate process name (security check)
+        valid_processes = ["parol-nextjs", "parol-commander", "parol-api"]
+        if process_name not in valid_processes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid process name. Must be one of: {', '.join(valid_processes)}"
+            )
+
+        # Execute PM2 restart command
+        result = subprocess.run(
+            ["pm2", "restart", process_name],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            logger.info(f"Successfully restarted PM2 process: {process_name}")
+            return {
+                "success": True,
+                "message": f"Process '{process_name}' restarted successfully",
+                "process_name": process_name
+            }
+        else:
+            logger.error(f"Failed to restart PM2 process {process_name}: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to restart process: {result.stderr}"
+            )
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="PM2 restart command timed out")
+    except Exception as e:
+        logger.error(f"Error restarting PM2 process {process_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 # Status Endpoints

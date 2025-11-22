@@ -107,79 +107,9 @@ interface ConfigStore {
   setConfig: (config: Config) => void;
 }
 
-// Default config values (fallback if backend not available)
-const defaultConfig: Config = {
-  robot: {
-    com_port: 'COM6',
-    baud_rate: 3000000,
-    timeout: 0,
-    auto_home_on_startup: true,
-    estop_enabled: true,
-  },
-  server: {
-    command_port: 5001,
-    ack_port: 5002,
-    loop_interval: 0.01,
-  },
-  api: {
-    host: '0.0.0.0',
-    port: 3001,
-    cors_origins: ['http://localhost:3000', 'http://localhost:3001'],
-    ws_max_rate_hz: 50,
-    ws_default_rate_hz: 10,
-  },
-  logging: {
-    level: 'DEBUG',
-    buffer_size: 1000,
-    stream_to_websocket: true,
-    file_output: null,
-    initial_log_count: 100,
-  },
-  ui: {
-    default_speed_percentage: 50,
-    default_acceleration_percentage: 60,
-    show_safety_warnings: true,
-    step_angle: 1.0,
-    cartesian_position_step_mm: 1,
-    default_timeline_duration: 10,
-    default_fps: 60,
-    tcp_offset: {
-      x: 47,
-      y: 0,
-      z: -62,
-      rx: 0,
-      ry: 0,
-      rz: 0,
-    },
-    hardware_robot: {
-      color: '#808080',
-      transparency: 0.35,
-    },
-    commander_robot: {
-      color: '#4ECDC4',
-      transparency: 1.0,
-    },
-    saved_positions: [
-      { name: 'Home', joints: [90, -90, 180, 0, 0, 180] },
-      { name: 'Park', joints: [90, -120, 130, 0, 0, 180] },
-      { name: 'Ready', joints: [0, -45, 90, 0, 45, 0] },
-    ],
-  },
-  frontend: {
-    websocket: {
-      default_rate_hz: 10,
-      topics: ['status', 'joints', 'pose', 'io', 'gripper'],
-      reconnect: {
-        max_attempts: 10,
-        base_delay_ms: 1000,
-      },
-    },
-    api_url: 'http://localhost:3001',
-  },
-};
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
-  config: defaultConfig,
+  config: null,
   isLoading: false,
   error: null,
 
@@ -217,12 +147,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       }
       const responseData = await response.json();
       const backendConfig = responseData.config; // Extract config from {message, config} response
-      // Preserve frontend config from current state (not saved to backend)
-      const mergedConfig = {
-        ...backendConfig,
-        frontend: currentConfig?.frontend || defaultConfig.frontend
-      };
-      set({ config: mergedConfig, isLoading: false });
+      set({ config: backendConfig, isLoading: false });
     } catch (error) {
       logger.error('Error saving config', 'ConfigStore', error);
       set({

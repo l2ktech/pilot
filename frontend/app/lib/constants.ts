@@ -57,3 +57,13 @@ export const ORIENTATION_CONFIG = {
   negateRY: false,   // No negation (was: true)
   negateRZ: false   // No negation (was: false)
 } as const;
+
+// TCP Gizmo Post-Rotation Configuration
+// This rotation is applied AFTER calculating TCP orientation from kinematics + TCP offset
+// It corrects for any coordinate frame misalignment between the gizmo arrows and display coords
+// Adjust these values to make RX=RY=RZ=0 visually align with world axes (X→X, Y→Y, Z→Z)
+export const TCP_POST_ROTATION = {
+  axis: 'z' as 'x' | 'y' | 'z',  // Rotation axis (x, y, or z)
+  angleDegrees: 0,               // Rotation angle in degrees (positive = counterclockwise)
+  enabled: true                  // Set to false to disable post-rotation entirely
+} as const;

@@ -21,7 +21,7 @@ export interface LogEntry {
 
 // WebSocket message types
 interface WSMessage {
-  type: 'connected' | 'log' | 'status' | 'pose' | 'joints' | 'speeds' | 'io' | 'gripper' | 'error';
+  type: 'connected' | 'log' | 'status' | 'pose' | 'joints' | 'speeds' | 'io' | 'gripper' | 'system' | 'error';
   data?: any;
   client_id?: string;
   message?: string;
@@ -58,6 +58,7 @@ export interface UseRobotWebSocketReturn {
     speeds?: any;
     io?: any;
     gripper?: any;
+    system?: any;
   };
 
   // Control functions
@@ -206,6 +207,10 @@ export function useRobotWebSocket(
 
             case 'gripper':
               setRobotData(prev => ({ ...prev, gripper: message.data }));
+              break;
+
+            case 'system':
+              setRobotData(prev => ({ ...prev, system: message.data }));
               break;
 
             case 'error':
