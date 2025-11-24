@@ -1,5 +1,11 @@
 # PAROL6 Robot Control System
 
+> **⚠️ Beta Software**
+>
+> This is beta software under active development. Expect bugs, quirks, and occasional unexpected behavior.
+>
+> Have feedback, found an issue, or want to suggest improvements? Join the discussion in our [Discord channel](https://discord.com/channels/1072498136284667955/1436740840818217054)!
+
 A modern, web-based control system for the PAROL6 6-axis robotic arm featuring real-time 3D visualization, timeline-based motion programming, and advanced kinematics.
 
 ## Features
