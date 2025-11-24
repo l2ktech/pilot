@@ -7,14 +7,14 @@ import { threeJsToRobot } from '@/app/lib/coordinateTransform';
 import type { CartesianPose } from '@/app/lib/types';
 
 /**
- * Visualizes the COMMANDED TCP position extracted from target robot URDF model
+ * Visualizes the COMMANDER TCP position extracted from commander robot URDF model
  * This shows where we're COMMANDING the robot to go (the main colored robot's TCP)
  * Uses orange/cyan/magenta color scheme
  *
  * IMPORTANT: Gets TCP position from URDF L6 link's world transform (accurate through all 6 joints)
  * Converts from Three.js coordinates (Y-up) to robot coordinates (Z-up) before storing
  */
-export default function TargetTCPVisualizer() {
+export default function CommanderTCPVisualizer() {
   const parentGroupRef = useRef<THREE.Group>(null);  // Coordinate frame wrapper (-90° X)
   const groupRef = useRef<THREE.Group>(null);         // TCP orientation
   const xArrowRef = useRef<THREE.ArrowHelper | null>(null);
@@ -24,15 +24,11 @@ export default function TargetTCPVisualizer() {
   // Track last sent position to avoid unnecessary setState calls
   const lastPositionRef = useRef<CartesianPose | null>(null);
 
-  // Get TCP post-rotation from store (live configurable)
-  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
-
   // Reusable objects to prevent memory leaks (don't create new objects every frame!)
   const l6WorldPosition = useRef(new THREE.Vector3());
   const l6WorldQuaternion = useRef(new THREE.Quaternion());
   const tcpRotationQuat = useRef(new THREE.Quaternion());
   const tcpRotationEuler = useRef(new THREE.Euler());
-  const postRotationQuat = useRef(new THREE.Quaternion());
   const localOffset = useRef(new THREE.Vector3());
   const worldOffset = useRef(new THREE.Vector3());
   const tcpWorldPosition = useRef(new THREE.Vector3());
@@ -49,8 +45,8 @@ export default function TargetTCPVisualizer() {
     const arrowHeadLength = arrowLength * 0.2;
     const arrowHeadWidth = arrowLength * 0.15;
 
-    // Orange/Cyan/Magenta color scheme for TARGET (target robot)
-    // Different from cartesian input (red/green/blue) and actual (yellow/lime/purple)
+    // Orange/Cyan/Magenta color scheme for COMMANDER (commanded robot position)
+    // Different from cartesian target (red/green/blue) and actual hardware (yellow/lime/purple)
     // Standard orientation - TCP rotation quaternion handles all transformations
 
     // X axis - Orange (standard +X direction)

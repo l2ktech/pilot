@@ -76,16 +76,17 @@ export interface RobotStatus {
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 // Keyframe = single pose snapshot at a specific time
-// Stores all 6 joint angles together (robot commands are coordinated, not per-joint)
+// Stores target cartesian pose (source of truth) with optional cached IK solution
 export interface Keyframe {
   id: string;
   time: number; // seconds
-  jointAngles: JointAngles; // All 6 joint angles (absolute truth - always stored)
+  cartesianPose: CartesianPose; // Target pose (source of truth - always stored)
+  jointAngles?: JointAngles; // Cached IK solution (computed from cartesianPose)
   motionType?: 'joint' | 'cartesian'; // How to interpolate to next keyframe (default: 'joint')
-  cartesianPose?: CartesianPose; // FK-computed cartesian pose (for reference/editing)
   label?: string;
   toolId?: string; // Tool active at this keyframe
   gripperState?: 'open' | 'closed'; // Gripper state at this keyframe (if tool has gripper)
+  loopDeltas?: Partial<CartesianPose>; // Per-axis increments per loop iteration (e.g., { Z: 10 } adds 10mm to Z each loop)
 }
 
 // Timeline = collection of keyframes (robot poses over time)
@@ -96,6 +97,7 @@ export interface Timeline {
   keyframes: Keyframe[]; // Array of pose keyframes
   duration: number; // total duration in seconds
   fps?: number; // playback frame rate (default 60)
+  loopIterations?: number; // Number of times to loop (default: 1 = no loop)
 }
 
 // Playback state
@@ -104,6 +106,7 @@ export interface PlaybackState {
   currentTime: number;
   startTime: number | null;
   loop: boolean;
+  loopCount: number;  // Current loop iteration (0-based)
   executeOnRobot: boolean;  // Whether to send commands to actual robot during playback
   playbackError: string | null;  // Error message if playback fails (e.g., IK failure during cartesian interpolation)
 }
@@ -155,7 +158,7 @@ export interface TimelineStore {
   playbackState: PlaybackState;
   ikAxisMask: IkAxisMask;
 
-  // Target TCP pose from target robot URDF (commanded position, updated by TargetTCPVisualizer)
+  // Commander TCP pose from commander robot URDF (commanded position, updated by CommanderTCPVisualizer)
   targetTcpPosition: { X: number; Y: number; Z: number; RX: number; RY: number; RZ: number } | null;
 
   // Actual TCP pose from actual robot URDF (hardware feedback, updated by ActualTCPVisualizer)

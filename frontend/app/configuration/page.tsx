@@ -13,12 +13,10 @@ import URDFLoader from 'urdf-loader';
 import { STLLoader } from 'three-stdlib';
 import * as THREE from 'three';
 import { useRobotConfigStore } from '../lib/stores/robotConfigStore';
+import { useConfigStore } from '../lib/configStore';
 import { applyJointAnglesToUrdf } from '../lib/urdfHelpers';
-import { calculateTcpPoseFromUrdf } from '../lib/tcpCalculations';
-import { threeJsToRobot } from '../lib/coordinateTransform';
 import GripperTCPVisualizer from '../components/GripperTCPVisualizer';
 import ToolCard from '../components/ToolCard';
-import ToolMountDialog from '../components/ToolMountDialog';
 import ToolDeleteDialog from '../components/ToolDeleteDialog';
 import { getApiBaseUrl } from '../lib/apiConfig';
 import { logger } from '../lib/logger';
@@ -48,41 +46,17 @@ interface Tool {
   };
 }
 
-// TCP Orientation Tracker - calculates and reports TCP orientation
-function TCPOrientationTracker({
-  robotRef,
-  tcpOffset,
-  onOrientationUpdate
-}: {
-  robotRef: any;
-  tcpOffset: { x: number; y: number; z: number; rx: number; ry: number; rz: number };
-  onOrientationUpdate: (rx: number, ry: number, rz: number) => void;
-}) {
-  useFrame(() => {
-    if (!robotRef) return;
-
-    try {
-      // Calculate TCP pose from URDF (returns Three.js Y-up coordinates)
-      // Note: Post-rotation is NOT applied here - it's only a visual correction for the gizmo arrows
-      const tcpPose = calculateTcpPoseFromUrdf(robotRef, tcpOffset);
-
-      if (tcpPose) {
-        // Convert to robot coordinates (Z-up) to get proper RX, RY, RZ angles
-        const robotPose = threeJsToRobot(tcpPose);
-        onOrientationUpdate(robotPose.rx, robotPose.ry, robotPose.rz);
-      }
-    } catch (error) {
-      // Silently handle errors
-    }
-  });
-
-  return null; // This component doesn't render anything
-}
-
 // Static URDF Robot Component (no controls, fixed pose, no L6)
-function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void }) {
+function StaticURDFRobot({
+  onRobotLoad,
+  color,
+  transparency
+}: {
+  onRobotLoad: (robot: any) => void;
+  color: string;
+  transparency: number;
+}) {
   const [localRobot, setLocalRobot] = useState<any>(null);
-  const commanderRobotColor = useRobotConfigStore((state) => state.commanderRobotColor);
 
   useEffect(() => {
     const loader = new URDFLoader();
@@ -90,7 +64,6 @@ function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void })
     loader.load(
       '/urdf/PAROL6.urdf',
       (loadedRobot: any) => {
-        setLocalRobot(loadedRobot);
         onRobotLoad(loadedRobot);
 
         setTimeout(() => {
@@ -110,7 +83,7 @@ function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void })
           applyJointAnglesToUrdf(loadedRobot, fixedAngles);
           loadedRobot.updateMatrixWorld(true);
 
-          // Style robot with gray color
+          // Clone materials (don't set color here - let the second effect handle it)
           loadedRobot.traverse((child: any) => {
             if (child.isMesh && child.material) {
               const materials = Array.isArray(child.material) ? child.material : [child.material];
@@ -119,12 +92,8 @@ function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void })
               materials.forEach((mat: any) => {
                 if (mat) {
                   const clonedMat = mat.clone();
-                  clonedMat.color.set(commanderRobotColor); // Use color from settings
-                  clonedMat.metalness = 0.2;      // Low metalness for diffuse look
-                  clonedMat.roughness = 0.7;      // Higher roughness for matte finish
-                  clonedMat.transparent = false;
-                  clonedMat.opacity = 1.0;
-                  clonedMat.needsUpdate = true;
+                  clonedMat.metalness = 0.2;
+                  clonedMat.roughness = 0.7;
                   newMaterials.push(clonedMat);
                 }
               });
@@ -132,6 +101,9 @@ function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void })
               child.material = Array.isArray(child.material) ? newMaterials : newMaterials[0];
             }
           });
+
+          // Set localRobot AFTER materials are ready, so the color effect can apply colors
+          setLocalRobot(loadedRobot);
         }, 500);
       }
     );
@@ -151,6 +123,25 @@ function StaticURDFRobot({ onRobotLoad }: { onRobotLoad: (robot: any) => void })
     };
   }, []);
 
+  // Re-apply color and transparency when they change
+  useEffect(() => {
+    if (localRobot) {
+      localRobot.traverse((child: any) => {
+        if (child.isMesh && child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          materials.forEach((mat: any) => {
+            if (mat) {
+              mat.color.set(color);
+              mat.transparent = transparency < 1.0;
+              mat.opacity = transparency;
+              mat.needsUpdate = true;
+            }
+          });
+        }
+      });
+    }
+  }, [color, transparency, localRobot]);
+
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
       {localRobot && <primitive object={localRobot} />}
@@ -165,7 +156,9 @@ function STLMesh({
   offset,
   stlGeometryOpen,
   stlGeometryClosed,
-  displayState
+  displayState,
+  color,
+  transparency
 }: {
   stlGeometry: THREE.BufferGeometry | null;
   robotRef: any;
@@ -173,6 +166,8 @@ function STLMesh({
   stlGeometryOpen?: THREE.BufferGeometry | null;
   stlGeometryClosed?: THREE.BufferGeometry | null;
   displayState?: 'open' | 'closed';
+  color: string;
+  transparency: number;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const meshOpenRef = useRef<THREE.Mesh>(null);
@@ -247,9 +242,9 @@ function STLMesh({
       {showMain && stlGeometry && (
         <mesh ref={meshRef} geometry={stlGeometry}>
           <meshStandardMaterial
-            color="#2196f3"
-            emissive="#2196f3"
-            emissiveIntensity={0.3}
+            color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -261,9 +256,9 @@ function STLMesh({
       {stlGeometryOpen && (
         <mesh ref={meshOpenRef} geometry={stlGeometryOpen} visible={showOpen}>
           <meshStandardMaterial
-            color="#2196f3"
-            emissive="#2196f3"
-            emissiveIntensity={0.3}
+            color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -275,9 +270,9 @@ function STLMesh({
       {stlGeometryClosed && (
         <mesh ref={meshClosedRef} geometry={stlGeometryClosed} visible={showClosed}>
           <meshStandardMaterial
-            color="#2196f3"
-            emissive="#2196f3"
-            emissiveIntensity={0.3}
+            color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -289,6 +284,19 @@ function STLMesh({
 }
 
 export default function ConfigurationPage() {
+  // Config from backend
+  const { config, fetchConfig } = useConfigStore();
+
+  // Robot appearance settings from store
+  const hardwareRobotColor = useRobotConfigStore((state) => state.hardwareRobotColor);
+  const hardwareRobotTransparency = useRobotConfigStore((state) => state.hardwareRobotTransparency);
+  const commanderRobotColor = useRobotConfigStore((state) => state.commanderRobotColor);
+  const commanderRobotTransparency = useRobotConfigStore((state) => state.commanderRobotTransparency);
+  const setHardwareRobotColor = useRobotConfigStore((state) => state.setHardwareRobotColor);
+  const setHardwareRobotTransparency = useRobotConfigStore((state) => state.setHardwareRobotTransparency);
+  const setCommanderRobotColor = useRobotConfigStore((state) => state.setCommanderRobotColor);
+  const setCommanderRobotTransparency = useRobotConfigStore((state) => state.setCommanderRobotTransparency);
+
   // Tool management state
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
@@ -305,10 +313,6 @@ export default function ConfigurationPage() {
   const [meshOffset, setMeshOffset] = useState({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }); // Manual offset adjustment (position + rotation)
   const [tcpOffset, setTcpOffset] = useState({ x: 0, y: -45.2, z: -62.8, rx: 90, ry: 180, rz: 0 }); // TCP offset (position in mm, rotation in degrees)
 
-  // TCP Post-Rotation state (from store for live tuning)
-  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
-  const setTcpPostRotation = useRobotConfigStore((state) => state.setTcpPostRotation);
-
   // Gripper I/O configuration state
   const [gripperEnabled, setGripperEnabled] = useState(false);
   const [gripperIoPin, setGripperIoPin] = useState<1 | 2>(1);
@@ -324,19 +328,33 @@ export default function ConfigurationPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
+  const [robotView, setRobotView] = useState<'commander' | 'hardware'>('commander'); // Which robot to show in 3D view
 
-  // TCP orientation tracking (for live display during tuning)
-  const [currentTcpOrientation, setCurrentTcpOrientation] = useState<{ rx: number; ry: number; rz: number }>({ rx: 0, ry: 0, rz: 0 });
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Dialog state
-  const [mountDialogOpen, setMountDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [toolToMount, setToolToMount] = useState<Tool | null>(null);
   const [toolToDelete, setToolToDelete] = useState<Tool | null>(null);
+
+  // Fetch config from backend on mount
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  // Sync robot appearance from config to robotConfigStore when config loads
+  useEffect(() => {
+    if (config?.ui?.hardware_robot) {
+      setHardwareRobotColor(config.ui.hardware_robot.color);
+      setHardwareRobotTransparency(config.ui.hardware_robot.transparency);
+    }
+    if (config?.ui?.commander_robot) {
+      setCommanderRobotColor(config.ui.commander_robot.color);
+      setCommanderRobotTransparency(config.ui.commander_robot.transparency);
+    }
+  }, [config, setHardwareRobotColor, setHardwareRobotTransparency, setCommanderRobotColor, setCommanderRobotTransparency]);
 
   // API Integration Functions
   // Load tools from backend
@@ -622,34 +640,6 @@ export default function ConfigurationPage() {
     }
   };
 
-  // Mount tool
-  const handleMountTool = (tool: Tool) => {
-    setToolToMount(tool);
-    setMountDialogOpen(true);
-  };
-
-  const confirmMountTool = async () => {
-    if (!toolToMount) return;
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/api/config/tools/${toolToMount.id}/mount`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to mount tool');
-      }
-
-      await loadTools(); // Refresh tools list
-    } catch (err) {
-      logger.error('Error mounting tool', 'confirmMountTool', { error: err });
-      setError(err instanceof Error ? err.message : 'Failed to mount tool');
-    } finally {
-      setMountDialogOpen(false);
-      setToolToMount(null);
-    }
-  };
 
   // Compute unsaved changes
   const hasUnsavedChanges = useMemo(() => {
@@ -933,9 +923,6 @@ export default function ConfigurationPage() {
     }
   }, [stlUnits]);
 
-  // Get current mounted tool
-  const currentMountedTool = tools.find(t => t.id === activeToolId) || null;
-
   return (
     <main className="h-screen flex flex-col bg-background">
       <Header />
@@ -943,39 +930,35 @@ export default function ConfigurationPage() {
       <div className="flex-1 p-4 grid grid-cols-[400px_1fr] gap-4 overflow-hidden">
         {/* Left Panel - Tool List + Editor */}
         <div className="space-y-3 overflow-auto">
-          {/* Tool List */}
+          {/* Tool Selector */}
           <Card className="p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-base font-semibold">Tools</h2>
-              <Button size="sm" onClick={handleCreateNew} className="h-7">
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-medium mb-1 block">Select Tool</label>
+                <Select
+                  value={selectedToolId || ''}
+                  onValueChange={(value) => {
+                    if (value) {
+                      loadToolIntoEditor(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder={isLoadingTools ? "Loading..." : "Select a tool..."} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tools.map((tool) => (
+                      <SelectItem key={tool.id} value={tool.id}>
+                        {tool.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button size="sm" onClick={handleCreateNew} className="h-8 mt-5">
                 <Plus className="w-3.5 h-3.5 mr-1" />
                 New
               </Button>
-            </div>
-
-            {isLoadingTools && (
-              <div className="text-xs text-muted-foreground text-center py-3">
-                Loading...
-              </div>
-            )}
-
-            {!isLoadingTools && tools.length === 0 && (
-              <div className="text-xs text-muted-foreground text-center py-3">
-                No tools found
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              {tools.map((tool) => (
-                <ToolCard
-                  key={tool.id}
-                  tool={tool}
-                  isMounted={tool.id === activeToolId}
-                  isSelected={tool.id === selectedToolId}
-                  onSelect={() => loadToolIntoEditor(tool.id)}
-                  onDelete={() => handleDeleteTool(tool)}
-                />
-              ))}
             </div>
           </Card>
 
@@ -983,7 +966,7 @@ export default function ConfigurationPage() {
           {(selectedToolId || isCreatingNew) && (
             <Card className="p-3">
               <h2 className="text-base font-semibold mb-2">
-                {isCreatingNew ? 'New Tool' : 'Edit Tool'}
+                {isCreatingNew ? 'New Tool' : editedToolName || 'Edit Tool'}
               </h2>
 
               {/* Tool Metadata */}
@@ -1193,66 +1176,66 @@ export default function ConfigurationPage() {
                   </Button>
                 </div>
 
-                {/* Position & Rotation in one section */}
-                <div className="space-y-1.5">
+                <div className="grid grid-cols-6 gap-1">
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Position (m)</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={meshOffset.x}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, x: parseFloat(e.target.value) || 0 })}
-                        placeholder="X"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={meshOffset.y}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, y: parseFloat(e.target.value) || 0 })}
-                        placeholder="Y"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={meshOffset.z}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, z: parseFloat(e.target.value) || 0 })}
-                        placeholder="Z"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                    </div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">X (m)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={meshOffset.x}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, x: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
-
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Rotation (°)</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <input
-                        type="number"
-                        step="1"
-                        value={meshOffset.rx}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, rx: parseFloat(e.target.value) || 0 })}
-                        placeholder="RX"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        value={meshOffset.ry}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, ry: parseFloat(e.target.value) || 0 })}
-                        placeholder="RY"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        value={meshOffset.rz}
-                        onChange={(e) => setMeshOffset({ ...meshOffset, rz: parseFloat(e.target.value) || 0 })}
-                        placeholder="RZ"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                    </div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">Y (m)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={meshOffset.y}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, y: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">Z (m)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={meshOffset.z}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, z: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RX (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={meshOffset.rx}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, rx: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RY (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={meshOffset.ry}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, ry: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RZ (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={meshOffset.rz}
+                      onChange={(e) => setMeshOffset({ ...meshOffset, rz: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
                 </div>
               </div>
@@ -1273,158 +1256,66 @@ export default function ConfigurationPage() {
                   </Button>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="grid grid-cols-6 gap-1">
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Position (mm)</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={tcpOffset.x}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, x: parseFloat(e.target.value) || 0 })}
-                        placeholder="X"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={tcpOffset.y}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, y: parseFloat(e.target.value) || 0 })}
-                        placeholder="Y"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={tcpOffset.z}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, z: parseFloat(e.target.value) || 0 })}
-                        placeholder="Z"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                    </div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">X (mm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={tcpOffset.x}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, x: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
-
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Orientation (°)</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <input
-                        type="number"
-                        step="1"
-                        value={tcpOffset.rx}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, rx: parseFloat(e.target.value) || 0 })}
-                        placeholder="RX"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        value={tcpOffset.ry}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, ry: parseFloat(e.target.value) || 0 })}
-                        placeholder="RY"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        value={tcpOffset.rz}
-                        onChange={(e) => setTcpOffset({ ...tcpOffset, rz: parseFloat(e.target.value) || 0 })}
-                        placeholder="RZ"
-                        className="h-7 px-1.5 text-xs bg-background border rounded text-center"
-                      />
-                    </div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">Y (mm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={tcpOffset.y}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, y: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* Current TCP Orientation Display */}
-            {(selectedToolId || isCreatingNew) && (
-              <div className="mt-2 p-2 bg-card border rounded">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium">Current TCP Orientation</label>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div className="text-center">
-                    <div className="text-[10px] text-muted-foreground mb-0.5">RX</div>
-                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.rx ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
-                      {(currentTcpOrientation.rx ?? 0).toFixed(1)}°
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-[10px] text-muted-foreground mb-0.5">RY</div>
-                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.ry ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
-                      {(currentTcpOrientation.ry ?? 0).toFixed(1)}°
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-[10px] text-muted-foreground mb-0.5">RZ</div>
-                    <div className={`text-sm font-mono font-bold px-2 py-1 rounded ${Math.abs(currentTcpOrientation.rz ?? 0) < 0.5 ? 'bg-green-500/20 text-green-400' : 'bg-muted'}`}>
-                      {(currentTcpOrientation.rz ?? 0).toFixed(1)}°
-                    </div>
-                  </div>
-                </div>
-                <div className="text-[9px] text-muted-foreground mt-1.5 text-center">
-                  🎯 Goal: All values close to 0° with gizmo aligned to world axes
-                </div>
-              </div>
-            )}
-
-            {/* TCP Post-Rotation Configuration (Live Tuning) */}
-            {(selectedToolId || isCreatingNew) && (
-              <div className="mt-2 p-2 bg-card border rounded">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium">TCP Post-Rotation (Live Tuning)</label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setTcpPostRotation({ axis: 'z', angleDegrees: 0, enabled: true })}
-                    className="h-6 px-2 text-[10px]"
-                  >
-                    Reset
-                  </Button>
-                </div>
-
-                <div className="space-y-1.5">
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Rotation Axis</label>
-                    <Select
-                      value={tcpPostRotation.axis}
-                      onValueChange={(value: 'x' | 'y' | 'z') => setTcpPostRotation({ axis: value })}
-                    >
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="x">X Axis</SelectItem>
-                        <SelectItem value="y">Y Axis</SelectItem>
-                        <SelectItem value="z">Z Axis</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">Z (mm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={tcpOffset.z}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, z: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
-
                   <div>
-                    <label className="text-[10px] text-muted-foreground mb-1 block">Angle (°)</label>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RX (°)</label>
                     <input
                       type="number"
                       step="1"
-                      value={tcpPostRotation.angleDegrees}
-                      onChange={(e) => setTcpPostRotation({ angleDegrees: parseFloat(e.target.value) || 0 })}
-                      placeholder="Angle"
-                      className="w-full h-7 px-1.5 text-xs bg-background border rounded text-center"
+                      value={tcpOffset.rx}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, rx: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
                     />
                   </div>
-
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-muted-foreground">Enabled</label>
-                    <Switch
-                      checked={tcpPostRotation.enabled}
-                      onCheckedChange={(checked) => setTcpPostRotation({ enabled: checked })}
-                      className="scale-75"
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RY (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={tcpOffset.ry}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, ry: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
                     />
                   </div>
-
-                  <div className="text-[9px] text-muted-foreground mt-1.5 p-1.5 bg-muted/30 rounded">
-                    💡 Adjust these values in real-time to align TCP gizmo orientation. When RX=RY=RZ=0, the gizmo should align with world axes.
+                  <div>
+                    <label className="text-[9px] text-muted-foreground block text-center mb-0.5">RZ (°)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={tcpOffset.rz}
+                      onChange={(e) => setTcpOffset({ ...tcpOffset, rz: parseFloat(e.target.value) || 0 })}
+                      className="h-7 px-1 text-xs bg-background border rounded text-center w-full"
+                    />
                   </div>
                 </div>
               </div>
@@ -1443,12 +1334,12 @@ export default function ConfigurationPage() {
                 </div>
 
                 {gripperEnabled && (
-                  <div className="space-y-1.5 pt-1.5">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[10px] text-muted-foreground mb-1 block">I/O Pin</label>
+                      <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">I/O Pin</label>
                       <Select value={gripperIoPin.toString()} onValueChange={(val) => setGripperIoPin(parseInt(val) as 1 | 2)}>
                         <SelectTrigger className="h-7 text-xs">
-                          <SelectValue placeholder="Select pin" />
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="1">Output 1</SelectItem>
@@ -1457,19 +1348,16 @@ export default function ConfigurationPage() {
                       </Select>
                     </div>
 
-                    <div className="flex items-center justify-between py-1">
-                      <span className="text-[10px] text-muted-foreground">
-                        {gripperOpenIsHigh ? 'Open = I/O HIGH' : 'Open = I/O LOW'}
-                      </span>
-                      <Switch
-                        checked={gripperOpenIsHigh}
-                        onCheckedChange={setGripperOpenIsHigh}
-                        className="scale-75"
-                      />
-                    </div>
-
-                    <div className="text-[9px] text-muted-foreground/60 text-center">
-                      Close = I/O {gripperOpenIsHigh ? 'LOW' : 'HIGH'}
+                    <div>
+                      <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">Open State</label>
+                      <div className="h-7 flex items-center justify-center gap-1.5 bg-background border rounded px-2">
+                        <span className="text-[10px]">{gripperOpenIsHigh ? 'HIGH' : 'LOW'}</span>
+                        <Switch
+                          checked={gripperOpenIsHigh}
+                          onCheckedChange={setGripperOpenIsHigh}
+                          className="scale-75"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1500,22 +1388,98 @@ export default function ConfigurationPage() {
                   {hasUnsavedChanges && <span className="mr-1">●</span>}
                   {isSaving ? 'Saving...' : isCreatingNew ? 'Create' : 'Save'}
                 </Button>
-
-                {/* Mount Button (only for existing tools) */}
-                {selectedToolId && !isCreatingNew && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleMountTool(tools.find(t => t.id === selectedToolId)!)}
-                    disabled={selectedToolId === activeToolId}
-                    className="w-full h-8"
-                    size="sm"
-                  >
-                    {selectedToolId === activeToolId ? 'Mounted' : 'Mount'}
-                  </Button>
-                )}
               </div>
             </Card>
           )}
+
+          {/* Robot Appearance - Always visible */}
+          <Card className="p-3">
+            <h2 className="text-base font-semibold mb-2">Robot Appearance</h2>
+
+            <div className="space-y-2">
+              {/* Commander Robot */}
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Commander Robot</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    type="color"
+                    value={commanderRobotColor}
+                    onChange={(e) => setCommanderRobotColor(e.target.value)}
+                    className="w-full h-7 cursor-pointer rounded border"
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={commanderRobotTransparency}
+                      onChange={(e) => setCommanderRobotTransparency(parseFloat(e.target.value))}
+                      className="flex-1"
+                    />
+                    <span className="text-[9px] text-muted-foreground w-8">
+                      {(commanderRobotTransparency * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hardware Robot */}
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Hardware Robot</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    type="color"
+                    value={hardwareRobotColor}
+                    onChange={(e) => setHardwareRobotColor(e.target.value)}
+                    className="w-full h-7 cursor-pointer rounded border"
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={hardwareRobotTransparency}
+                      onChange={(e) => setHardwareRobotTransparency(parseFloat(e.target.value))}
+                      className="flex-1"
+                    />
+                    <span className="text-[9px] text-muted-foreground w-8">
+                      {(hardwareRobotTransparency * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <Button
+              onClick={async () => {
+                try {
+                  const { saveConfig } = useConfigStore.getState();
+                  await saveConfig({
+                    ui: {
+                      ...config?.ui,
+                      hardware_robot: {
+                        color: hardwareRobotColor,
+                        transparency: hardwareRobotTransparency
+                      },
+                      commander_robot: {
+                        color: commanderRobotColor,
+                        transparency: commanderRobotTransparency
+                      }
+                    }
+                  });
+                } catch (err) {
+                  logger.error('Error saving robot appearance', 'ConfigurationPage', { error: err });
+                }
+              }}
+              className="w-full h-8 mt-2"
+              size="sm"
+            >
+              Save Appearance
+            </Button>
+          </Card>
 
         </div>
 
@@ -1530,10 +1494,14 @@ export default function ConfigurationPage() {
             <directionalLight position={[10, 10, 5]} intensity={1} />
 
             <Suspense fallback={null}>
-              {/* Static URDF Robot (gray, no L6, fixed pose) */}
-              <StaticURDFRobot onRobotLoad={setRobot} />
+              {/* Static URDF Robot - color based on view selection */}
+              <StaticURDFRobot
+                onRobotLoad={setRobot}
+                color={robotView === 'commander' ? commanderRobotColor : hardwareRobotColor}
+                transparency={robotView === 'commander' ? commanderRobotTransparency : hardwareRobotTransparency}
+              />
 
-              {/* Uploaded STL Mesh (blue) - positioned at L6 attachment point */}
+              {/* Uploaded STL Mesh - positioned at L6 attachment point, color and transparency match robot */}
               <STLMesh
                 stlGeometry={stlGeometry}
                 robotRef={robot}
@@ -1541,17 +1509,12 @@ export default function ConfigurationPage() {
                 stlGeometryOpen={stlGeometryOpen}
                 stlGeometryClosed={stlGeometryClosed}
                 displayState={displayState}
+                color={robotView === 'commander' ? commanderRobotColor : hardwareRobotColor}
+                transparency={robotView === 'commander' ? commanderRobotTransparency : hardwareRobotTransparency}
               />
 
               {/* TCP Gizmo (orange/cyan/magenta arrows) - shows functional tool center point */}
               <GripperTCPVisualizer robotRef={robot} tcpOffset={tcpOffset} />
-
-              {/* TCP Orientation Tracker - calculates and reports orientation angles */}
-              <TCPOrientationTracker
-                robotRef={robot}
-                tcpOffset={tcpOffset}
-                onOrientationUpdate={(rx, ry, rz) => setCurrentTcpOrientation({ rx, ry, rz })}
-              />
             </Suspense>
 
             <OrbitControls target={[0, 0.2, 0]} />
@@ -1570,44 +1533,65 @@ export default function ConfigurationPage() {
             </GizmoHelper>
           </Canvas>
 
-          {/* Display State Toggle (independent of gripper I/O) */}
-          {(stlGeometryOpen || stlGeometryClosed) && (
-            <div className="absolute bottom-4 left-4 z-10 bg-black/70 px-3 py-2 rounded-lg backdrop-blur-sm">
+          {/* 3D View Controls */}
+          <div className="absolute bottom-4 left-4 z-10 bg-black/70 px-3 py-2 rounded-lg backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              {/* Show as toggle */}
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">Display State:</span>
+                <span className="text-[10px] text-muted-foreground">Show as:</span>
                 <div className="flex items-center gap-1.5">
                   <Button
-                    variant={displayState === 'open' ? 'default' : 'ghost'}
+                    variant={robotView === 'commander' ? 'default' : 'ghost'}
                     size="sm"
-                    onClick={() => setDisplayState('open')}
+                    onClick={() => setRobotView('commander')}
                     className="h-6 px-2 text-[10px]"
                   >
-                    Open
+                    Commander
                   </Button>
                   <Button
-                    variant={displayState === 'closed' ? 'default' : 'ghost'}
+                    variant={robotView === 'hardware' ? 'default' : 'ghost'}
                     size="sm"
-                    onClick={() => setDisplayState('closed')}
+                    onClick={() => setRobotView('hardware')}
                     className="h-6 px-2 text-[10px]"
                   >
-                    Closed
+                    Hardware
                   </Button>
                 </div>
               </div>
+
+              {/* Gripper state toggle (only shown if gripper geometries exist) */}
+              {(stlGeometryOpen || stlGeometryClosed) && (
+                <>
+                  <div className="w-px h-6 bg-muted-foreground/30" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">Gripper state:</span>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        variant={displayState === 'open' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setDisplayState('open')}
+                        className="h-6 px-2 text-[10px]"
+                      >
+                        Open
+                      </Button>
+                      <Button
+                        variant={displayState === 'closed' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setDisplayState('closed')}
+                        className="h-6 px-2 text-[10px]"
+                      >
+                        Closed
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {/* Dialogs */}
-      <ToolMountDialog
-        open={mountDialogOpen}
-        onOpenChange={setMountDialogOpen}
-        currentTool={currentMountedTool}
-        newTool={toolToMount}
-        onConfirm={confirmMountTool}
-      />
-
       <ToolDeleteDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

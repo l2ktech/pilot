@@ -1,12 +1,11 @@
 import { useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useRobotConfigStore } from '@/app/lib/stores';
 
 /**
  * Visualizes the TCP (Tool Center Point) for the gripper editor
  * Shows where the functional tool tip is based on TCP offset configuration
- * Uses orange/cyan/magenta color scheme (same as TargetTCPVisualizer)
+ * Uses orange/cyan/magenta color scheme (same as CommanderTCPVisualizer)
  */
 export default function GripperTCPVisualizer({
   robotRef,
@@ -20,15 +19,12 @@ export default function GripperTCPVisualizer({
   const yArrowRef = useRef<THREE.ArrowHelper | null>(null);
   const zArrowRef = useRef<THREE.ArrowHelper | null>(null);
 
-  // Get TCP post-rotation from store (live configurable)
-  const tcpPostRotation = useRobotConfigStore((state) => state.tcpPostRotation);
-
   // Reusable objects to prevent memory leaks (don't create new objects every frame!)
   const l6WorldPosition = useRef(new THREE.Vector3());
   const l6WorldQuaternion = useRef(new THREE.Quaternion());
   const tcpRotationQuat = useRef(new THREE.Quaternion());
   const tcpRotationEuler = useRef(new THREE.Euler());
-  const postRotationQuat = useRef(new THREE.Quaternion());
+  const visualCorrectionQuat = useRef(new THREE.Quaternion());
   const localOffset = useRef(new THREE.Vector3());
   const worldOffset = useRef(new THREE.Vector3());
   const tcpWorldPosition = useRef(new THREE.Vector3());
@@ -136,18 +132,12 @@ export default function GripperTCPVisualizer({
         groupRef.current.quaternion.multiply(tcpRotationQuat.current);
       }
 
-      // Apply configurable post-rotation (if enabled)
-      // This aligns the standard arrows with the display coordinate system
-      if (tcpPostRotation.enabled) {
-        const axisVector = new THREE.Vector3(
-          tcpPostRotation.axis === 'x' ? 1 : 0,
-          tcpPostRotation.axis === 'y' ? 1 : 0,
-          tcpPostRotation.axis === 'z' ? 1 : 0
-        );
-        const angleRad = tcpPostRotation.angleDegrees * Math.PI / 180;
-        postRotationQuat.current.setFromAxisAngle(axisVector, angleRad);
-        groupRef.current.quaternion.multiply(postRotationQuat.current);
-      }
+      // Apply visual correction to match CommanderTCPVisualizer coordinate system
+      // Config page robot is wrapped with -90° X, so we try -90° X correction
+      const correctionAxis = new THREE.Vector3(1, 0, 0);  // X axis
+      const correctionAngle = -Math.PI / 2;  // -90 degrees
+      visualCorrectionQuat.current.setFromAxisAngle(correctionAxis, correctionAngle);
+      groupRef.current.quaternion.multiply(visualCorrectionQuat.current);
     }
   });
 

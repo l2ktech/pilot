@@ -13,10 +13,6 @@ export interface RobotConfigStore {
   // User-adjustable to match different tools
   tcpOffset: { x: number; y: number; z: number; rx: number; ry: number; rz: number };
 
-  // TCP Gizmo Post-Rotation (visual correction for TCP orientation display)
-  // Applied AFTER calculating TCP orientation from kinematics + TCP offset
-  tcpPostRotation: { axis: 'x' | 'y' | 'z'; angleDegrees: number; enabled: boolean };
-
   // IK axis mask - selectively enable/disable axes during IK solving
   // Default: Full 6DoF (all axes enabled)
   ikAxisMask: IkAxisMask;
@@ -29,7 +25,6 @@ export interface RobotConfigStore {
 
   // Actions
   setTcpOffset: (axis: 'x' | 'y' | 'z' | 'rx' | 'ry' | 'rz', value: number) => void;
-  setTcpPostRotation: (updates: Partial<{ axis: 'x' | 'y' | 'z'; angleDegrees: number; enabled: boolean }>) => void;
   setIkAxisMask: (updates: Partial<IkAxisMask>) => void;
   setHardwareRobotColor: (color: string) => void;
   setHardwareRobotTransparency: (transparency: number) => void;
@@ -40,7 +35,6 @@ export interface RobotConfigStore {
 export const useRobotConfigStore = create<RobotConfigStore>((set) => ({
   // Initial state
   tcpOffset: { x: 47, y: 0, z: -62, rx: 0, ry: 0, rz: 0 },
-  tcpPostRotation: { axis: 'z', angleDegrees: 0, enabled: true },
   ikAxisMask: { X: true, Y: true, Z: true, RX: true, RY: true, RZ: true },
   hardwareRobotColor: '#808080',
   hardwareRobotTransparency: 0.35,
@@ -58,15 +52,6 @@ export const useRobotConfigStore = create<RobotConfigStore>((set) => ({
 
     // Invalidate trajectory cache since TCP offset affects IK results
     useTimelineStore.getState().invalidateTrajectoryCache();
-  },
-
-  setTcpPostRotation: (updates) => {
-    set((state) => ({
-      tcpPostRotation: {
-        ...state.tcpPostRotation,
-        ...updates
-      }
-    }));
   },
 
   setIkAxisMask: (updates) => {

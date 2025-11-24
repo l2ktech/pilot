@@ -49,14 +49,14 @@ export interface TimelineStore {
   ikProgress: IKProgressState;
 
   // Actions - Keyframe management
-  addKeyframe: (time: number, jointAngles: JointAngles, cartesianPose?: CartesianPose, toolId?: string, gripperState?: 'open' | 'closed') => void;
+  addKeyframe: (time: number, cartesianPose: CartesianPose, jointAngles?: JointAngles, toolId?: string, gripperState?: 'open' | 'closed') => void;
   removeKeyframe: (id: string) => void;
   updateKeyframe: (id: string, updates: Partial<Keyframe>) => void;
-  recordKeyframes: (jointAngles: JointAngles, cartesianPose?: CartesianPose) => void;
+  recordKeyframes: (cartesianPose: CartesianPose, jointAngles?: JointAngles) => void;
 
   // Actions - Motion type management
   toggleKeyframeMotionType: (keyframeIds: string[]) => void;
-  updateKeyframeValues: (id: string, jointAngles: JointAngles, cartesianPose: CartesianPose) => void;
+  updateKeyframeValues: (id: string, cartesianPose: CartesianPose, jointAngles?: JointAngles) => void;
 
   // Actions - Playback control
   setCurrentTime: (time: number) => void;
@@ -65,6 +65,7 @@ export interface TimelineStore {
   stop: () => void;
   setPlaybackError: (error: string | null) => void;
   clearPlaybackError: () => void;
+  setLoopIterations: (count: number) => void;
 
   // Actions - Timeline management
   setMotionMode: (mode: MotionMode) => void;
@@ -86,7 +87,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     name: 'Untitled',
     mode: 'joint',
     keyframes: [],
-    duration: DEFAULT_DURATION
+    duration: DEFAULT_DURATION,
+    loopIterations: 1  // Default: no looping
   },
 
   playbackState: {
@@ -94,6 +96,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     currentTime: 0,
     startTime: null,
     loop: false,
+    loopCount: 0,  // Current loop iteration (0-based)
     executeOnRobot: false,
     playbackError: null
   },
@@ -108,7 +111,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   // Keyframe management actions
-  addKeyframe: (time, jointAngles, cartesianPose, toolId, gripperState) => {
+  addKeyframe: (time, cartesianPose, jointAngles, toolId, gripperState) => {
     set((state) => ({
       timeline: {
         ...state.timeline,
@@ -117,8 +120,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
           {
             id: uuidv4(),
             time,
-            jointAngles,
-            ...(cartesianPose && { cartesianPose }),
+            cartesianPose,
+            ...(jointAngles && { jointAngles }),
             ...(toolId && { toolId }),
             ...(gripperState && { gripperState })
           }
@@ -147,7 +150,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     }));
   },
 
-  recordKeyframes: (jointAngles, cartesianPose) => {
+  recordKeyframes: (cartesianPose, jointAngles) => {
     const state = get();
     const currentTime = state.playbackState.currentTime;
 
@@ -156,26 +159,24 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     const toolId = commandStore.commanderTool?.id || null;
     const gripperState = commandStore.commandedGripperState;
 
-    // Record or update a single keyframe (containing all 6 joint angles) at current time
+    // Record or update a single keyframe (containing cartesian pose) at current time
     // If keyframe already exists at this time, update it instead of creating new
     const existingKeyframe = state.timeline.keyframes.find(
       (kf) => Math.abs(kf.time - currentTime) < 0.001
     );
 
     if (existingKeyframe) {
-      // Update existing keyframe with new joint angles, cartesian pose, and tool state
+      // Update existing keyframe with new cartesian pose, joint angles, and tool state
       const updates: Partial<Keyframe> = {
-        jointAngles,
+        cartesianPose,
+        ...(jointAngles && { jointAngles }),
         ...(toolId && { toolId }),
         gripperState
       };
-      if (cartesianPose) {
-        updates.cartesianPose = cartesianPose;
-      }
       state.updateKeyframe(existingKeyframe.id, updates);
     } else {
       // Create new keyframe with all properties including tool state
-      state.addKeyframe(currentTime, jointAngles, cartesianPose, toolId, gripperState);
+      state.addKeyframe(currentTime, cartesianPose, jointAngles, toolId, gripperState);
     }
   },
 
@@ -200,13 +201,13 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     }));
   },
 
-  updateKeyframeValues: (id, jointAngles, cartesianPose) => {
+  updateKeyframeValues: (id, cartesianPose, jointAngles) => {
     set((state) => ({
       timeline: {
         ...state.timeline,
         keyframes: state.timeline.keyframes.map(kf =>
           kf.id === id
-            ? { ...kf, jointAngles, cartesianPose }
+            ? { ...kf, cartesianPose, ...(jointAngles && { jointAngles }) }
             : kf
         )
       }
@@ -262,6 +263,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         currentTime: 0,
         startTime: null,
         loop: false,
+        loopCount: 0,  // Reset loop counter
         executeOnRobot: false,
         playbackError: null  // Clear any errors
       }
@@ -286,6 +288,19 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     }));
   },
 
+  setLoopIterations: (count) => {
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        loopIterations: Math.max(1, count)  // Ensure at least 1
+      },
+      playbackState: {
+        ...state.playbackState,
+        loopCount: 0  // Reset counter when changing iterations
+      }
+    }));
+  },
+
   // Timeline management
   setMotionMode: (mode) => {
     const state = get();
@@ -302,11 +317,12 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         mode
       },
       playbackState: {
+        ...state.playbackState,
         isPlaying: false,
-        currentTime: 0,
         startTime: null,
         loop: false,
-        executeOnRobot: false
+        executeOnRobot: false,
+        playbackError: null
       }
     }));
   },

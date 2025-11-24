@@ -1,6 +1,6 @@
 /**
  * TCP (Tool Center Point) calculation utilities
- * Extracted to eliminate code duplication across TargetTCPVisualizer, ActualTCPVisualizer, and kinematics
+ * Extracted to eliminate code duplication across CommanderTCPVisualizer, ActualTCPVisualizer, and kinematics
  *
  * IMPORTANT: This file returns poses in THREE.JS COORDINATES (Y-up), NOT robot coordinates (Z-up).
  * The URDF robots are rendered with a -90° X rotation in RobotViewer, which converts Z-up to Y-up.

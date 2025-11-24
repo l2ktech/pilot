@@ -12,6 +12,7 @@ import { generateCartesianWaypoints, arrayToPose, poseToArray, calculateWaypoint
 import { getToolAtTime } from '@/app/lib/toolHelpers';
 import { JointAngles, CartesianPose, Tool } from '@/app/lib/types';
 import { logger } from '@/app/lib/logger';
+import { applyLoopDeltasToKeyframe } from '@/app/lib/loopVariables';
 
 /**
  * Solve IK with J1 sweep fallback strategy.
@@ -307,15 +308,58 @@ export function usePlayback(availableTools: Tool[] = []) {
     const interval = setInterval(() => {
       const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
 
+      // Apply loop deltas to keyframes for current iteration
+      const loopCount = useTimelineStore.getState().playbackState.loopCount;
+      const adjustedKeyframes = keyframes.map(kf => {
+        const adjusted = applyLoopDeltasToKeyframe(kf, loopCount);
+
+        // If loop deltas were applied (cartesian pose changed), re-solve IK for joint angles
+        if (loopCount > 0 && adjusted.cartesianPose && computationRobotRef) {
+          const ikResult = inverseKinematicsDetailed(
+            adjusted.cartesianPose,
+            kf.jointAngles || commandedJointAngles, // Use original as seed
+            computationRobotRef,
+            computationTool,
+            ikAxisMask
+          );
+
+          if (ikResult.success && ikResult.jointAngles) {
+            return { ...adjusted, jointAngles: ikResult.jointAngles };
+          }
+        }
+
+        return adjusted;
+      });
+
       // Calculate last keyframe time
-      const lastKeyframeTime = keyframes.length > 0
-        ? Math.max(...keyframes.map(kf => kf.time))
+      const lastKeyframeTime = adjustedKeyframes.length > 0
+        ? Math.max(...adjustedKeyframes.map(kf => kf.time))
         : duration;
 
-      // Pause playback when reaching the last keyframe (don't jump to t=0)
+      // Check if we've reached the end of the timeline
       if (elapsed >= lastKeyframeTime) {
-        pause();
-        return;
+        const loopIterations = useTimelineStore.getState().timeline.loopIterations || 1;
+        const loopCount = useTimelineStore.getState().playbackState.loopCount;
+
+        // Check if we should loop
+        if (loopIterations > 1 && loopCount < loopIterations - 1) {
+          // More loops to go - restart from beginning
+          setCurrentTime(0);
+          useTimelineStore.setState({
+            playbackState: {
+              ...useTimelineStore.getState().playbackState,
+              startTime: Date.now(),
+              loopCount: loopCount + 1
+            }
+          });
+          // Reset lastTime to process keyframes again
+          lastTime.current = 0;
+          // Don't return - let playback continue
+        } else {
+          // Done looping - stop playback
+          pause();
+          return;
+        }
       }
 
       setCurrentTime(elapsed);
@@ -324,7 +368,7 @@ export function usePlayback(availableTools: Tool[] = []) {
       if (executeOnRobot) {
         // Find all unique keyframe times crossed since last frame
         const uniqueTimes = new Set<number>();
-        keyframes.forEach(kf => {
+        adjustedKeyframes.forEach(kf => {
           if (kf.time >= lastTime.current && kf.time <= elapsed) {
             uniqueTimes.add(kf.time);
           }
@@ -334,7 +378,7 @@ export function usePlayback(availableTools: Tool[] = []) {
         const sortedTimes = Array.from(uniqueTimes).sort((a, b) => a - b);
         sortedTimes.forEach(async (time) => {
           // Find next keyframe time after this one
-          const allKeyframeTimes = [...new Set(keyframes.map(kf => kf.time))];
+          const allKeyframeTimes = [...new Set(adjustedKeyframes.map(kf => kf.time))];
           const futureKeyframeTimes = allKeyframeTimes.filter(t => t > time);
           const nextKeyframeTime = futureKeyframeTimes.length > 0
             ? Math.min(...futureKeyframeTimes)
@@ -344,7 +388,7 @@ export function usePlayback(availableTools: Tool[] = []) {
             const commandDuration = nextKeyframeTime - time;
 
             // Find the next keyframe to check its motion type
-            const nextKeyframe = keyframes.find(kf => kf.time === nextKeyframeTime);
+            const nextKeyframe = adjustedKeyframes.find(kf => kf.time === nextKeyframeTime);
 
             if (nextKeyframe?.motionType === 'cartesian' && nextKeyframe.cartesianPose) {
               // ========================================
@@ -352,8 +396,8 @@ export function usePlayback(availableTools: Tool[] = []) {
               // ========================================
 
               // Get start pose (current keyframe's cartesian pose)
-              const currentKeyframe = keyframes.find(kf => kf.time === time);
-              const startPose = currentKeyframe?.cartesianPose || getCartesianPoseAtTime(keyframes, time);
+              const currentKeyframe = adjustedKeyframes.find(kf => kf.time === time);
+              const startPose = currentKeyframe?.cartesianPose || getCartesianPoseAtTime(adjustedKeyframes, time);
               const endPose = nextKeyframe.cartesianPose;
 
               if (!startPose || !computationRobotRef) {
@@ -364,11 +408,13 @@ export function usePlayback(availableTools: Tool[] = []) {
               }
 
               // Get current joint angles (seed for IK)
-              const startJoints = getJointAnglesAtTime(keyframes, time);
+              const startJoints = getJointAnglesAtTime(adjustedKeyframes, time);
 
-              // Check cache first to avoid redundant IK solving
-              const cacheKey = `${currentKeyframe?.id}_${nextKeyframe.id}`;
-              logger.debug(`Looking for cache with key: ${cacheKey}`, 'usePlayback');
+              // Check cache - include loop iteration in key if loopCount > 0
+              const baseCacheKey = `${currentKeyframe?.id}_${nextKeyframe.id}`;
+              const cacheKey = loopCount > 0 ? `${baseCacheKey}_loop${loopCount}` : baseCacheKey;
+
+              logger.debug(`Looking for cache with key: ${cacheKey} (loop ${loopCount})`, 'usePlayback');
               logger.debug(`currentKeyframe: ${currentKeyframe?.id} at time ${time}`, 'usePlayback');
               logger.debug(`nextKeyframe: ${nextKeyframe.id} at time ${nextKeyframeTime}`, 'usePlayback');
 
@@ -398,7 +444,7 @@ export function usePlayback(availableTools: Tool[] = []) {
                 return;
               }
 
-              // Use cached trajectory - convert JointAngles[] to number[][]
+              // Use pre-cached trajectory (includes loop adjustments if loopCount > 0)
               const trajectory = cachedTrajectory.waypointJoints.map(joints => [
                 joints.J1, joints.J2, joints.J3, joints.J4, joints.J5, joints.J6
               ]);
@@ -446,7 +492,7 @@ export function usePlayback(availableTools: Tool[] = []) {
               // ========================================
               // JOINT EXECUTION (EXISTING LOGIC)
               // ========================================
-              const nextKeyframeAngles = getJointAnglesAtTime(keyframes, nextKeyframeTime);
+              const nextKeyframeAngles = getJointAnglesAtTime(adjustedKeyframes, nextKeyframeTime);
 
               // Send move command to NEXT keyframe with duration
               moveJoints(nextKeyframeAngles, undefined, commandDuration).catch(error => {
@@ -461,9 +507,9 @@ export function usePlayback(availableTools: Tool[] = []) {
       lastTime.current = elapsed;
 
       // Update tool based on current timeline position (same pattern as useScrubbing)
-      if (availableTools.length > 0 && keyframes.length > 0) {
+      if (availableTools.length > 0 && adjustedKeyframes.length > 0) {
         const computationTool = useKinematicsStore.getState().computationTool;
-        const currentTool = getToolAtTime(keyframes, elapsed, availableTools, computationTool);
+        const currentTool = getToolAtTime(adjustedKeyframes, elapsed, availableTools, computationTool);
 
         // Always update stores to force object reference change
         // This ensures mesh reload triggers during playback
@@ -486,8 +532,8 @@ export function usePlayback(availableTools: Tool[] = []) {
       }
 
       // Update gripper state based on current timeline position (same as useScrubbing)
-      if (keyframes.length > 0) {
-        const currentGripperState = getGripperStateAtTime(keyframes, elapsed);
+      if (adjustedKeyframes.length > 0) {
+        const currentGripperState = getGripperStateAtTime(adjustedKeyframes, elapsed);
         const currentCommandedState = useCommandStore.getState().commandedGripperState;
 
         // Only update if changed (avoid unnecessary renders)
@@ -498,12 +544,12 @@ export function usePlayback(availableTools: Tool[] = []) {
 
       // Per-keyframe motion type interpolation
       // Check if we should use cartesian interpolation (moving TO a cartesian keyframe)
-      const useCartesian = shouldUseCartesianInterpolation(keyframes, elapsed);
+      const useCartesian = shouldUseCartesianInterpolation(adjustedKeyframes, elapsed);
 
       if (useCartesian) {
         // Cartesian preview: Use pre-calculated cached trajectory (NO IK!)
         // Find which segment we're in
-        const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+        const sortedKeyframes = [...adjustedKeyframes].sort((a, b) => a.time - b.time);
         let targetSegment = null;
 
         for (let i = 1; i < sortedKeyframes.length; i++) {
@@ -517,8 +563,9 @@ export function usePlayback(availableTools: Tool[] = []) {
         }
 
         if (targetSegment) {
-          // Get cached trajectory for this segment
-          const cacheKey = `${targetSegment.prev.id}_${targetSegment.curr.id}`;
+          // Get cached trajectory for this segment (include loop iteration)
+          const baseCacheKey = `${targetSegment.prev.id}_${targetSegment.curr.id}`;
+          const cacheKey = loopCount > 0 ? `${baseCacheKey}_loop${loopCount}` : baseCacheKey;
           const cachedTrajectory = useTimelineStore.getState().getCachedTrajectory(cacheKey);
 
           if (cachedTrajectory && cachedTrajectory.waypointJoints) {
@@ -533,17 +580,17 @@ export function usePlayback(availableTools: Tool[] = []) {
             useCommandStore.setState({ commandedJointAngles: waypointJoints });
           } else {
             // No cache - fall back to keyframe interpolation
-            const interpolatedAngles = getJointAnglesAtTime(keyframes, elapsed);
+            const interpolatedAngles = getJointAnglesAtTime(adjustedKeyframes, elapsed);
             useCommandStore.setState({ commandedJointAngles: interpolatedAngles });
           }
         } else {
           // Not in a cartesian segment - use keyframe interpolation
-          const interpolatedAngles = getJointAnglesAtTime(keyframes, elapsed);
+          const interpolatedAngles = getJointAnglesAtTime(adjustedKeyframes, elapsed);
           useCommandStore.setState({ commandedJointAngles: interpolatedAngles });
         }
 
         // Update cartesian pose for target visualizer
-        const interpolatedPose = getCartesianPoseAtTime(keyframes, elapsed);
+        const interpolatedPose = getCartesianPoseAtTime(adjustedKeyframes, elapsed);
         if (interpolatedPose) {
           useInputStore.setState({
             inputCartesianPose: interpolatedPose
@@ -551,7 +598,7 @@ export function usePlayback(availableTools: Tool[] = []) {
         }
       } else {
         // Joint interpolation: Interpolate joint angles directly
-        const interpolatedAngles = getJointAnglesAtTime(keyframes, elapsed);
+        const interpolatedAngles = getJointAnglesAtTime(adjustedKeyframes, elapsed);
         useCommandStore.setState({ commandedJointAngles: interpolatedAngles });
       }
     }, 1000 / DEFAULT_FPS); // 60fps

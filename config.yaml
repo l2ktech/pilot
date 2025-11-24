@@ -31,10 +31,10 @@ logging:
     level: INFO
   buffer_size: 1000
   commander:
-    level: ERROR
+    level: INFO
   file_output: /home/jacob/parol6/logs/parol6.log
   frontend:
-    level: DEBUG
+    level: INFO
   initial_log_count: 100
   level: INFO
   log_forward_enabled: true
@@ -54,7 +54,7 @@ server:
   log_forward_port: 5003
   loop_interval: 0.01
 ui:
-  active_tool: pneuhorisontal
+  active_tool: standard_90deg_tool
   cartesian_position_step_mm: 1
   commander_robot:
     color: '#ffffff'
@@ -115,15 +115,23 @@ ui:
     - 0
     - 180
     name: 180deg
+  - joints:
+    - 0.7110002309331738
+    - -86.52969093801923
+    - 144.74922193386175
+    - 1.2779204231285841
+    - -51.33871187657071
+    - 88.49073645563249
+    name: StraightDown
   show_safety_warnings: false
   step_angle: 1
   tcp_offset:
-    rx: 0
+    rx: -90
     ry: 90
-    rz: 0
+    rz: 90
     x: 0
-    y: 0
-    z: -79
+    y: -50
+    z: 0
   tools:
   - description: No tool attached - TCP at J6 flange tip
     id: default_j6_tip
@@ -163,9 +171,9 @@ ui:
     mesh_units: m
     name: Standard 90deg tool
     tcp_offset:
-      rx: 90
-      ry: 180
-      rz: 0
+      rx: -90
+      ry: 90
+      rz: 90
       x: 0
       y: -50
       z: 0
@@ -192,21 +200,21 @@ ui:
     id: default_no_offset
     mesh_file: null
     mesh_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: 0
+      y: 0
+      z: 0
     mesh_units: mm
     name: No offset
     tcp_offset:
-      rx: 0.0
-      ry: 0.0
-      rz: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
+      rx: 0
+      ry: 0
+      rz: 0
+      x: 0
+      y: 0
+      z: 0
   - description: ''
     id: duck
     mesh_file: RubberDuck.stl
@@ -245,9 +253,9 @@ ui:
     mesh_units: m
     name: PneuHorisontal
     tcp_offset:
-      rx: 0
+      rx: -90
       ry: 90
-      rz: 0
+      rz: 90
       x: 0
       y: 0
       z: -79

@@ -137,19 +137,6 @@ export default function Home() {
           const data = await response.json();
           setTools(data.tools || []);
           setActiveToolId(data.active_tool_id || null);
-
-          // Load TCP offset from active tool
-          if (data.active_tool_id) {
-            const activeTool = data.tools?.find((t: Tool) => t.id === data.active_tool_id);
-            if (activeTool?.tcp_offset) {
-              setTcpOffset('x', activeTool.tcp_offset.x);
-              setTcpOffset('y', activeTool.tcp_offset.y);
-              setTcpOffset('z', activeTool.tcp_offset.z);
-              setTcpOffset('rx', activeTool.tcp_offset.rx ?? 0);
-              setTcpOffset('ry', activeTool.tcp_offset.ry ?? 0);
-              setTcpOffset('rz', activeTool.tcp_offset.rz ?? 0);
-            }
-          }
         }
       } catch (error) {
         logger.error('Failed to fetch tools', 'page', error);
@@ -157,6 +144,40 @@ export default function Home() {
     };
     fetchTools();
   }, []);
+
+  // Apply TCP offset and sync tool to all stores when active tool is loaded
+  useEffect(() => {
+    if (activeToolId && tools.length > 0) {
+      const activeTool = tools.find((t: Tool) => t.id === activeToolId);
+      if (activeTool) {
+        // Sync TCP offset to robotConfigStore
+        if (activeTool.tcp_offset) {
+          useRobotConfigStore.setState({
+            tcpOffset: {
+              x: activeTool.tcp_offset.x,
+              y: activeTool.tcp_offset.y,
+              z: activeTool.tcp_offset.z,
+              rx: activeTool.tcp_offset.rx ?? 0,
+              ry: activeTool.tcp_offset.ry ?? 0,
+              rz: activeTool.tcp_offset.rz ?? 0
+            }
+          });
+          logger.info(
+            `Loaded TCP offset for tool "${activeTool.name}": [${activeTool.tcp_offset.x}, ${activeTool.tcp_offset.y}, ${activeTool.tcp_offset.z}]`,
+            'page/toolInit'
+          );
+        } else {
+          logger.warn(`Active tool "${activeTool.name}" has no TCP offset`, 'page/toolInit');
+        }
+
+        // Sync tool to all stores (matches handleToolChange pattern)
+        useCommandStore.setState({ commanderTool: activeTool });
+        useKinematicsStore.setState({ computationTool: activeTool });
+        useHardwareStore.setState({ hardwareTool: activeTool });
+        logger.debug(`Synced tool "${activeTool.name}" to all stores`, 'page/toolInit');
+      }
+    }
+  }, [activeToolId, tools]);
 
   // Sync default_speed_percentage from config to commandStore when config loads
   useEffect(() => {
@@ -241,37 +262,38 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
 
-        // Sync TCP offset to robotConfigStore
+        // Sync TCP offset to robotConfigStore using atomic setState pattern
         if (data.tcp_offset) {
-          setTcpOffset('x', data.tcp_offset.x);
-          setTcpOffset('y', data.tcp_offset.y);
-          setTcpOffset('z', data.tcp_offset.z);
-          setTcpOffset('rx', data.tcp_offset.rx ?? 0);
-          setTcpOffset('ry', data.tcp_offset.ry ?? 0);
-          setTcpOffset('rz', data.tcp_offset.rz ?? 0);
+          useRobotConfigStore.setState({
+            tcpOffset: {
+              x: data.tcp_offset.x,
+              y: data.tcp_offset.y,
+              z: data.tcp_offset.z,
+              rx: data.tcp_offset.rx ?? 0,
+              ry: data.tcp_offset.ry ?? 0,
+              rz: data.tcp_offset.rz ?? 0
+            }
+          });
         }
 
         // Find the full tool object from the tools list
         const selectedTool = tools.find(t => t.id === toolId);
-        console.log('========== handleToolChange ==========');
-        console.log('Tool ID:', toolId);
-        console.log('Selected Tool:', selectedTool);
-        console.log('=====================================');
+        logger.debug(`Tool change - Tool ID: ${toolId}`, 'page/handleToolChange');
 
         if (selectedTool) {
           // Update commandStore (commander robot visualization)
           useCommandStore.setState({ commanderTool: selectedTool });
-          console.log('✓ Updated commandStore.commanderTool');
+          logger.debug('Updated commandStore.commanderTool', 'page/handleToolChange');
 
           // Update kinematicsStore (IK computation robot)
           useKinematicsStore.setState({ computationTool: selectedTool });
-          console.log('✓ Updated kinematicsStore.computationTool');
+          logger.debug('Updated kinematicsStore.computationTool', 'page/handleToolChange');
 
           // Update hardwareStore (physically mounted tool)
           useHardwareStore.setState({ hardwareTool: selectedTool });
-          console.log('✓ Updated hardwareStore.hardwareTool');
+          logger.debug('Updated hardwareStore.hardwareTool', 'page/handleToolChange');
 
-          logger.debug(`Mounted tool: ${selectedTool.name}`, 'page/handleToolChange');
+          logger.info(`Mounted tool: ${selectedTool.name}`, 'page/handleToolChange');
         }
 
         // Update active tool ID (will trigger RobotViewer to load and sync tool)

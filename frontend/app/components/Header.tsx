@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/app/lib/configStore';
 
-const tabs = [
+const baseTabs = [
   { name: 'Control', href: '/' },
   { name: 'Configuration', href: '/configuration' },
   { name: 'Camera', href: '/camera' },
@@ -16,6 +17,13 @@ const tabs = [
 
 export default function Header() {
   const pathname = usePathname();
+  const config = useConfigStore((state) => state.config);
+
+  // Only show Debug tab when frontend log level is DEBUG
+  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
+  const tabs = isDebugMode
+    ? [...baseTabs, { name: 'Debug', href: '/debug' }]
+    : baseTabs;
 
   return (
     <header className="border-b px-6 py-3">

@@ -28,7 +28,7 @@ import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { calculateTcpPoseFromUrdf } from '@/app/lib/tcpCalculations';
 import { threeJsToRobot } from '@/app/lib/coordinateTransform';
 import { applyJointAnglesToUrdf } from '@/app/lib/urdfHelpers';
-import { ArrowLeftRight, Calculator, AlertCircle } from 'lucide-react';
+import { ArrowLeftRight, Calculator, AlertCircle, Check } from 'lucide-react';
 import { logger } from '@/app/lib/logger';
 import { getApiBaseUrl } from '@/app/lib/apiConfig';
 
@@ -45,6 +45,8 @@ export default function KeyframeEditDialog({
 }: KeyframeEditDialogProps) {
   const keyframes = useTimelineStore((state) => state.timeline.keyframes);
   const updateKeyframeValues = useTimelineStore((state) => state.updateKeyframeValues);
+  const loopIterations = useTimelineStore((state) => state.timeline.loopIterations);
+  const updateKeyframe = useTimelineStore((state) => state.updateKeyframe);
   const computationRobotRef = useKinematicsStore((state) => state.computationRobotRef);
   const computationTool = useKinematicsStore((state) => state.computationTool);
   const tcpOffset = useRobotConfigStore((state) => state.tcpOffset);
@@ -58,6 +60,7 @@ export default function KeyframeEditDialog({
   const [localCartesianPose, setLocalCartesianPose] = useState<CartesianPose | null>(null);
   const [localToolId, setLocalToolId] = useState<string | null>(null);
   const [localGripperState, setLocalGripperState] = useState<'open' | 'closed' | null>(null);
+  const [localLoopDeltas, setLocalLoopDeltas] = useState<Partial<CartesianPose>>({});
   const [ikError, setIkError] = useState<string | null>(null);
   const [fkError, setFkError] = useState<string | null>(null);
 
@@ -105,11 +108,44 @@ export default function KeyframeEditDialog({
       setLocalToolId(keyframe.toolId || null);
       setLocalGripperState(keyframe.gripperState || null);
 
+      // Initialize loop deltas from keyframe
+      setLocalLoopDeltas(keyframe.loopDeltas || {});
+
       setIkError(null);
       setFkError(null);
       setInputValues({});
     }
   }, [keyframe, computationRobotRef, computationTool]);
+
+  // Auto-IK: Solve IK when cartesian pose changes (debounced)
+  useEffect(() => {
+    if (!localCartesianPose || !computationRobotRef || !localJointAngles) {
+      return;
+    }
+
+    // Debounce IK solving to avoid excessive computation during typing
+    const timeoutId = setTimeout(() => {
+      setIkError(null);
+
+      const ikResult = inverseKinematicsDetailed(
+        localCartesianPose,
+        localJointAngles, // Use current joint angles as seed
+        computationRobotRef,
+        computationTool,
+        ikAxisMask
+      );
+
+      if (ikResult.success && ikResult.jointAngles) {
+        setLocalJointAngles(ikResult.jointAngles);
+        setIkError(null);
+      } else {
+        // Don't block user - just show warning
+        setIkError(ikResult.error?.message || 'Position may be unreachable');
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [localCartesianPose, computationRobotRef, computationTool, ikAxisMask]); // Intentionally omit localJointAngles to avoid loop
 
   if (!keyframe || !localJointAngles || !localCartesianPose) {
     return null;
@@ -127,6 +163,18 @@ export default function KeyframeEditDialog({
     const newCartesianPose = { ...localCartesianPose, [axis]: value };
     setLocalCartesianPose(newCartesianPose);
     setInputValues({ ...inputValues, [axis]: '' });
+  };
+
+  // Handle loop delta changes
+  const handleLoopDeltaChange = (axis: CartesianAxis, value: number) => {
+    const newLoopDeltas = { ...localLoopDeltas };
+    if (value === 0) {
+      // Remove the delta if it's 0
+      delete newLoopDeltas[axis];
+    } else {
+      newLoopDeltas[axis] = value;
+    }
+    setLocalLoopDeltas(newLoopDeltas);
   };
 
   // Sync cartesian to joint (FK)
@@ -156,30 +204,6 @@ export default function KeyframeEditDialog({
     }
   };
 
-  // Sync joint to cartesian (IK)
-  const handleIK = () => {
-    if (!computationRobotRef) {
-      setIkError('Robot model not loaded');
-      return;
-    }
-
-    setIkError(null);
-
-    const ikResult = inverseKinematicsDetailed(
-      localCartesianPose,
-      localJointAngles,
-      computationRobotRef,
-      computationTool,
-      ikAxisMask
-    );
-
-    if (ikResult.success && ikResult.jointAngles) {
-      setLocalJointAngles(ikResult.jointAngles);
-    } else {
-      setIkError(ikResult.error?.message || 'IK failed');
-    }
-  };
-
   // Save changes
   const handleSave = () => {
     // Use updateKeyframe instead to include tool state
@@ -192,6 +216,10 @@ export default function KeyframeEditDialog({
     }
     if (localGripperState) {
       updates.gripperState = localGripperState;
+    }
+    // Include loop deltas if they exist
+    if (Object.keys(localLoopDeltas).length > 0) {
+      updates.loopDeltas = localLoopDeltas;
     }
 
     const updateKeyframe = useTimelineStore.getState().updateKeyframe;
@@ -289,38 +317,42 @@ export default function KeyframeEditDialog({
             })}
           </div>
 
-          {/* Middle Column: Sync Buttons */}
-          <div className="flex flex-col justify-center items-center gap-4 min-w-[100px]">
+          {/* Middle Column: Sync & Status */}
+          <div className="flex flex-col justify-center items-center gap-4 min-w-[120px]">
+            {/* IK Status Indicator */}
+            <div className="flex flex-col items-center gap-2">
+              {!ikError ? (
+                <div className="flex items-center gap-2 text-green-500">
+                  <Check className="w-4 h-4" />
+                  <span className="text-xs">IK Valid</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-yellow-500" title={ikError}>
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-xs">IK Warning</span>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground text-center">
+                (Auto-computed)
+              </div>
+            </div>
+
+            {/* FK Button for manual joint edits */}
             <Button
               onClick={handleFK}
               variant="outline"
               size="sm"
               className="w-full"
-              title="Forward Kinematics: Compute cartesian pose from joint angles"
+              title="Forward Kinematics: Update cartesian pose from manual joint angle changes"
             >
               <ArrowLeftRight className="w-4 h-4 mr-2" />
-              FK →
-            </Button>
-
-            <div className="text-xs text-muted-foreground text-center">
-              Sync
-            </div>
-
-            <Button
-              onClick={handleIK}
-              variant="outline"
-              size="sm"
-              className="w-full"
-              title="Inverse Kinematics: Compute joint angles from cartesian pose"
-            >
-              <Calculator className="w-4 h-4 mr-2" />
-              ← IK
+              Sync FK →
             </Button>
 
             {ikError && (
-              <div className="bg-red-500/10 border border-red-500/50 rounded p-2 flex items-start gap-2">
-                <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-red-400">{ikError}</div>
+              <div className="bg-yellow-500/10 border border-yellow-500/50 rounded p-2 flex items-start gap-2">
+                <AlertCircle className="w-3 h-3 text-yellow-500 mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-yellow-400">{ikError}</div>
               </div>
             )}
 
@@ -343,6 +375,8 @@ export default function KeyframeEditDialog({
               const displayValue = inputValues[axis] !== undefined && inputValues[axis] !== ''
                 ? inputValues[axis]
                 : currentValue.toFixed(1);
+              const loopDelta = localLoopDeltas[axis] || 0;
+              const showLoopControls = (loopIterations || 1) > 1;
 
               return (
                 <div key={axis} className="space-y-2">
@@ -358,6 +392,26 @@ export default function KeyframeEditDialog({
                         className="w-20 h-7 px-2 text-xs font-mono text-right"
                       />
                       <span className="text-xs text-muted-foreground w-8">{unit}</span>
+
+                      {/* Loop delta input (only show when looping is enabled) */}
+                      {showLoopControls && (
+                        <>
+                          <span className="text-xs text-muted-foreground ml-2">Δ/loop:</span>
+                          <Input
+                            type="number"
+                            value={loopDelta}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value);
+                              if (!isNaN(value)) {
+                                handleLoopDeltaChange(axis, value);
+                              }
+                            }}
+                            className="w-16 h-7 px-2 text-xs font-mono text-right bg-green-900/20 border-green-500/50"
+                            title={`Add ${loopDelta}${unit} to ${axis} per loop iteration`}
+                            step={step}
+                          />
+                        </>
+                      )}
                     </div>
                   </div>
                   <Slider

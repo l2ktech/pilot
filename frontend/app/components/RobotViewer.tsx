@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { useInputStore, useCommandStore, useHardwareStore, useTimelineStore, useRobotConfigStore } from '@/app/lib/stores';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import TargetPoseVisualizer from './TargetPoseVisualizer';
-import TargetTCPVisualizer from './TargetTCPVisualizer';
+import CommanderTCPVisualizer from './CommanderTCPVisualizer';
 import ActualTCPVisualizer from './ActualTCPVisualizer';
 import PathVisualizer from './PathVisualizer';
 import IKProgressBar from './IKProgressBar';
@@ -82,7 +82,8 @@ function ToolMesh({
   displayState,
   robotRef,
   tool,
-  color
+  color,
+  transparency
 }: {
   geometry: THREE.BufferGeometry | null;
   gripperMeshOpen?: THREE.BufferGeometry | null;
@@ -91,6 +92,7 @@ function ToolMesh({
   robotRef: any;
   tool: Tool | null;
   color: string;
+  transparency: number;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const gripperOpenRef = useRef<THREE.Mesh>(null);
@@ -170,6 +172,8 @@ function ToolMesh({
         <mesh ref={meshRef} geometry={geometry}>
           <meshStandardMaterial
             color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -182,6 +186,8 @@ function ToolMesh({
         <mesh ref={gripperOpenRef} geometry={gripperMeshOpen}>
           <meshStandardMaterial
             color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -194,6 +200,8 @@ function ToolMesh({
         <mesh ref={gripperClosedRef} geometry={gripperMeshClosed}>
           <meshStandardMaterial
             color={color}
+            transparent={transparency < 1.0}
+            opacity={transparency}
             metalness={0.3}
             roughness={0.6}
             side={THREE.DoubleSide}
@@ -754,6 +762,7 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
           robotRef={robotRef.current}
           tool={currentTool}
           color={commanderRobotColor}
+          transparency={commanderRobotTransparency}
         />
       )}
 
@@ -768,6 +777,7 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
           robotRef={hardwareRobotRef.current}
           tool={hardwareTool}
           color={hardwareRobotColor}
+          transparency={hardwareRobotTransparency}
         />
       )}
 
@@ -1604,9 +1614,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
             hardwareGripperState={hardwareGripperState}
           />
 
-          {/* Target TCP visualizer (orange/cyan/magenta) - shows commanded position from target robot */}
+          {/* Commander TCP visualizer (orange/cyan/magenta) - shows commanded position from commander robot */}
           {/* NOTE: NO rotation applied - gets world position directly from URDF */}
-          {showTargetRobot && <TargetTCPVisualizer />}
+          {showTargetRobot && <CommanderTCPVisualizer />}
 
           {/* Actual TCP visualizer (yellow/lime/purple) - shows hardware feedback from actual robot */}
           {/* NOTE: NO rotation applied - gets world position directly from URDF */}

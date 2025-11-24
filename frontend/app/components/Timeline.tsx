@@ -76,6 +76,7 @@ export default function Timeline({ availableTools }: TimelineProps) {
   const keyframes = useTimelineStore((state) => state.timeline.keyframes);
   const currentTime = useTimelineStore((state) => state.playbackState.currentTime);
   const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
+  const addKeyframe = useTimelineStore((state) => state.addKeyframe);
   const updateKeyframe = useTimelineStore((state) => state.updateKeyframe);
   const removeKeyframe = useTimelineStore((state) => state.removeKeyframe);
   const duration = useTimelineStore((state) => state.timeline.duration);
@@ -317,6 +318,9 @@ export default function Timeline({ availableTools }: TimelineProps) {
   const playbackError = useTimelineStore((state) => state.playbackState.playbackError);
   const clearPlaybackError = useTimelineStore((state) => state.clearPlaybackError);
   const setCachedTrajectory = useTimelineStore((state) => state.setCachedTrajectory);
+  const timeline = useTimelineStore((state) => state.timeline);
+  const playbackState = useTimelineStore((state) => state.playbackState);
+  const setLoopIterations = useTimelineStore((state) => state.setLoopIterations);
 
   // Get commanded state for recording
   const commandedJointAngles = useCommandStore((state) => state.commandedJointAngles);
@@ -667,10 +671,22 @@ export default function Timeline({ availableTools }: TimelineProps) {
 
       // Update commanded angles and record with cartesian pose
       useCommandStore.setState({ commandedJointAngles: ikResult.jointAngles });
-      recordKeyframes(ikResult.jointAngles, inputCartesianPose);
+      recordKeyframes(inputCartesianPose, ikResult.jointAngles);
     } else {
-      // Joint mode: Record current commanded angles and cartesian pose
-      recordKeyframes(commandedJointAngles, commandedTcpPose || undefined);
+      // Joint mode: Record current commanded angles with cartesian pose
+      // If commandedTcpPose not available, compute FK
+      let tcpPose = commandedTcpPose;
+      if (!tcpPose && computationRobotRef) {
+        applyJointAnglesToUrdf(computationRobotRef, commandedJointAngles);
+        tcpPose = calculateTcpPoseFromUrdf(computationRobotRef, computationTool);
+      }
+
+      if (!tcpPose) {
+        setRecordError('Cannot compute TCP pose. Robot model not loaded.');
+        return;
+      }
+
+      recordKeyframes(tcpPose, commandedJointAngles);
     }
   };
 
@@ -727,8 +743,8 @@ export default function Timeline({ availableTools }: TimelineProps) {
 
             // Cache the trajectory
             if (result.waypointPoses && result.waypointJoints && result.ikValid) {
-              // Generate cache key: "prevKeyframeId_currKeyframeId"
-              const cacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
+              // Generate base cache key: "prevKeyframeId_currKeyframeId"
+              const baseCacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
 
               // Generate dependency hash for cache invalidation
               const dependencyData = JSON.stringify({
@@ -739,15 +755,80 @@ export default function Timeline({ availableTools }: TimelineProps) {
                 duration: duration
               });
 
-              setCachedTrajectory(cacheKey, {
+              // Cache base trajectory (loop 0)
+              setCachedTrajectory(baseCacheKey, {
                 waypointPoses: result.waypointPoses,
                 waypointJoints: result.waypointJoints,
                 ikValid: result.ikValid,
-                dependencyHash: dependencyData, // Simple string hash (could use crypto if needed)
+                dependencyHash: dependencyData,
                 computedAt: Date.now()
               });
 
-              logger.debug(`Cached trajectory for segment ${cacheKey}: ${result.waypointPoses.length} waypoints`, 'Timeline');
+              logger.debug(`Cached base trajectory for ${baseCacheKey}: ${result.waypointPoses.length} waypoints`, 'Timeline');
+
+              // Pre-calculate and cache loop iterations if loopIterations > 1
+              const loopIterations = useTimelineStore.getState().timeline.loopIterations || 1;
+              if (loopIterations > 1 && (prevKeyframe.loopDeltas || currKeyframe.loopDeltas)) {
+                logger.info(`Pre-calculating ${loopIterations - 1} loop trajectories for ${baseCacheKey}`, 'Timeline');
+
+                for (let loop = 1; loop < loopIterations; loop++) {
+                  const loopCacheKey = `${baseCacheKey}_loop${loop}`;
+
+                  // Adjust poses for this loop iteration
+                  const loopAdjustedPoses: CartesianPose[] = [];
+                  const loopAdjustedJoints: JointAngles[] = [];
+                  const loopIkValid: boolean[] = [];
+
+                  for (let i = 0; i < result.waypointPoses.length; i++) {
+                    const basePose = result.waypointPoses[i];
+                    const t = i / (result.waypointPoses.length - 1); // 0 to 1
+
+                    // Interpolate loop deltas between start and end keyframe
+                    const startDeltas = prevKeyframe.loopDeltas || {};
+                    const endDeltas = currKeyframe.loopDeltas || {};
+
+                    const adjustedPose: CartesianPose = {
+                      X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
+                      Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
+                      Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
+                      RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
+                      RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
+                      RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
+                    };
+
+                    loopAdjustedPoses.push(adjustedPose);
+
+                    // Re-solve IK for adjusted pose
+                    const seed = i === 0 ? result.waypointJoints[0] : loopAdjustedJoints[i - 1];
+                    const ikResult = inverseKinematicsDetailed(
+                      adjustedPose,
+                      seed,
+                      computationRobotRef,
+                      segmentTool,
+                      ikAxisMask
+                    );
+
+                    if (ikResult.success && ikResult.jointAngles) {
+                      loopAdjustedJoints.push(ikResult.jointAngles);
+                      loopIkValid.push(true);
+                    } else {
+                      loopAdjustedJoints.push(seed);
+                      loopIkValid.push(false);
+                    }
+                  }
+
+                  // Cache the loop trajectory
+                  setCachedTrajectory(loopCacheKey, {
+                    waypointPoses: loopAdjustedPoses,
+                    waypointJoints: loopAdjustedJoints,
+                    ikValid: loopIkValid,
+                    dependencyHash: dependencyData,
+                    computedAt: Date.now()
+                  });
+
+                  logger.debug(`Cached loop ${loop} trajectory for ${loopCacheKey}: ${loopAdjustedPoses.length} waypoints`, 'Timeline');
+                }
+              }
             }
           }
         }
@@ -795,6 +876,48 @@ export default function Timeline({ availableTools }: TimelineProps) {
     if (!selectedKeyframe) return;
     setEditingKeyframeId(selectedKeyframe.id);
     setEditDialogOpen(true);
+  };
+
+  const handleDuplicateKeyframe = () => {
+    if (!selectedKeyframe) return;
+
+    // Find the last keyframe time
+    const lastKeyframeTime = keyframes.length > 0
+      ? Math.max(...keyframes.map(kf => kf.time))
+      : 0;
+
+    // Place duplicate 1 second after last keyframe
+    const newTime = lastKeyframeTime + 1;
+
+    // Duplicate the keyframe with all properties
+    addKeyframe(
+      newTime,
+      selectedKeyframe.cartesianPose,
+      selectedKeyframe.jointAngles,
+      selectedKeyframe.toolId,
+      selectedKeyframe.gripperState
+    );
+
+    // Also copy loop deltas and motion type if present
+    setTimeout(() => {
+      const newKeyframes = useTimelineStore.getState().timeline.keyframes;
+      const duplicatedKeyframe = newKeyframes.find(kf => Math.abs(kf.time - newTime) < 0.001);
+      if (duplicatedKeyframe) {
+        const updates: any = {};
+
+        if (selectedKeyframe.loopDeltas && Object.keys(selectedKeyframe.loopDeltas).length > 0) {
+          updates.loopDeltas = selectedKeyframe.loopDeltas;
+        }
+
+        if (selectedKeyframe.motionType) {
+          updates.motionType = selectedKeyframe.motionType;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          updateKeyframe(duplicatedKeyframe.id, updates);
+        }
+      }
+    }, 50);
   };
 
   return (
@@ -896,6 +1019,62 @@ export default function Timeline({ availableTools }: TimelineProps) {
 
         <div style={{ width: '1px', background: 'gray', height: '100%', marginRight: '5px' }}></div>
 
+        {/* Loop controls */}
+        <button
+          onClick={() => {
+            const currentIterations = timeline.loopIterations || 1;
+            setLoopIterations(currentIterations > 1 ? 1 : 5);
+          }}
+          className="button material-icons"
+          style={{
+            padding: '0px',
+            width: '44px',
+            minWidth: '44px',
+            marginRight: (timeline.loopIterations || 1) > 1 ? '5px' : '5px',
+            color: (timeline.loopIterations || 1) > 1 ? '#4caf50' : '#adadad',
+            background: (timeline.loopIterations || 1) > 1 ? 'rgba(76, 175, 80, 0.2)' : 'transparent',
+            border: 'none',
+            cursor: 'pointer'
+          }}
+          title={(timeline.loopIterations || 1) > 1 ? `Loop Enabled (${timeline.loopIterations}x)` : 'Loop Disabled'}
+          onMouseOver={(e) => e.currentTarget.style.background = (timeline.loopIterations || 1) > 1 ? 'rgba(76, 175, 80, 0.3)' : '#201616'}
+          onMouseOut={(e) => e.currentTarget.style.background = (timeline.loopIterations || 1) > 1 ? 'rgba(76, 175, 80, 0.2)' : 'transparent'}
+        >
+          repeat
+        </button>
+
+        {/* Loop count input (only show when looping is enabled) */}
+        {(timeline.loopIterations || 1) > 1 && (
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={timeline.loopIterations || 1}
+            onChange={(e) => {
+              const value = parseInt(e.target.value);
+              if (!isNaN(value) && value >= 1) {
+                setLoopIterations(value);
+              }
+            }}
+            style={{
+              width: '50px',
+              height: '30px',
+              marginRight: '5px',
+              padding: '5px',
+              background: 'rgba(76, 175, 80, 0.1)',
+              border: '1px solid rgba(76, 175, 80, 0.5)',
+              borderRadius: '4px',
+              color: '#4caf50',
+              fontSize: '12px',
+              textAlign: 'center',
+              fontFamily: 'monospace'
+            }}
+            title="Number of loop iterations"
+          />
+        )}
+
+        <div style={{ width: '1px', background: 'gray', height: '100%', marginRight: '5px' }}></div>
+
         {/* Record button */}
         <button
           onClick={handleRecord}
@@ -990,7 +1169,7 @@ export default function Timeline({ availableTools }: TimelineProps) {
             fontWeight: '500',
             opacity: !selectedKeyframe ? 0.5 : 1
           }}
-          title={!selectedKeyframe ? 'Select a keyframe to toggle motion type' : 'Toggle between Joint and Cartesian motion'}
+          title={!selectedKeyframe ? 'Select a keyframe to toggle motion type' : 'Motion Type - Controls HOW the robot moves to this keyframe:\n• Joint: Linear interpolation in joint space (smooth, always succeeds)\n• Cartesian: Linear path in XYZ space (requires pre-computed trajectory)\n\nNote: This affects interpolation, not the keyframe position itself.'}
         >
           {isSelectedKeyframeCartesian ? 'Cartesian' : 'Joint'} Move
         </button>
@@ -1015,6 +1194,28 @@ export default function Timeline({ availableTools }: TimelineProps) {
           onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
         >
           edit
+        </button>
+
+        {/* Duplicate Keyframe button */}
+        <button
+          onClick={handleDuplicateKeyframe}
+          disabled={!selectedKeyframe}
+          className="button material-icons"
+          style={{
+            padding: '0px',
+            width: '44px',
+            minWidth: '44px',
+            marginRight: '5px',
+            color: !selectedKeyframe ? '#555555' : '#adadad',
+            background: 'transparent',
+            border: 'none',
+            cursor: !selectedKeyframe ? 'default' : 'pointer'
+          }}
+          title={!selectedKeyframe ? 'Select a keyframe to duplicate' : 'Duplicate Keyframe (places 1s after last keyframe)'}
+          onMouseOver={(e) => { if (selectedKeyframe) e.currentTarget.style.background = '#201616' }}
+          onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          content_copy
         </button>
 
         {/* Spacer */}
@@ -1050,6 +1251,11 @@ export default function Timeline({ availableTools }: TimelineProps) {
           marginRight: '10px'
         }}>
           {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
+          {(timeline.loopIterations || 1) > 1 && playbackState.loopCount > 0 && (
+            <span style={{ color: '#4caf50', marginLeft: '8px' }}>
+              Loop {playbackState.loopCount + 1}/{timeline.loopIterations}
+            </span>
+          )}
         </div>
       </div>
 
