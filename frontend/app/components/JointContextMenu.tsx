@@ -21,12 +21,6 @@ export function JointContextMenu() {
     setCommandedJointAngle(joint, value);
   };
 
-  const handleHome = ({ props }: { props: MenuData }) => {
-    if (props && props.jointName) {
-      setJointAngle(props.jointName, 0);
-    }
-  };
-
   const handleGoToMin = ({ props }: { props: MenuData }) => {
     if (props && props.jointName) {
       const limits = JOINT_LIMITS[props.jointName];
@@ -51,9 +45,6 @@ export function JointContextMenu() {
 
   return (
     <Menu id={MENU_ID} theme="dark">
-      <Item onClick={handleHome}>
-        <span className="text-sm">🏠 Home Joint (0°)</span>
-      </Item>
       <Item onClick={handleCenter}>
         <span className="text-sm">🎯 Center Joint</span>
       </Item>

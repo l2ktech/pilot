@@ -798,8 +798,6 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   const setShowHardwareRobot = useInputStore((state) => state.setShowHardwareRobot);
   const showTargetRobot = useInputStore((state) => state.showTargetRobot);
   const setShowTargetRobot = useInputStore((state) => state.setShowTargetRobot);
-  const showFirmwareCoordinates = useInputStore((state) => state.showFirmwareCoordinates);
-  const setShowFirmwareCoordinates = useInputStore((state) => state.setShowFirmwareCoordinates);
   const showPath = useInputStore((state) => state.showPath);
   const setShowPath = useInputStore((state) => state.setShowPath);
 
@@ -862,6 +860,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
   // Config store for saving presets
   const { config, saveConfig } = useConfigStore();
+  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
 
   // Get all saved positions from config
   const savedPositions = getAllPositions();
@@ -1426,7 +1425,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                 }}
                 className="mb-0.5"
               />
-              {showFirmwareCoordinates && (
+              {isDebugMode && (
                 <TCPPoseDisplay
                   pose={hardwareCartesianPose}
                   label="HW Firmware"
@@ -1538,12 +1537,6 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
               onCheckedChange={setShowTargetRobot}
             >
               Show Commanded Robot
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem
-              checked={showFirmwareCoordinates}
-              onCheckedChange={setShowFirmwareCoordinates}
-            >
-              Show Firmware Coordinates
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={showPath}

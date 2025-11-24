@@ -54,7 +54,7 @@ server:
   log_forward_port: 5003
   loop_interval: 0.01
 ui:
-  active_tool: pneuhorisontal
+  active_tool: standard_90deg_tool
   cartesian_position_step_mm: 1
   commander_robot:
     color: '#ffffff'

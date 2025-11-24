@@ -34,7 +34,7 @@ services:
       - PYTHONPATH=/app
       - COMMANDER_HOST=host.docker.internal  # Commander runs on host network
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
       - recordings:/app/recordings
     restart: unless-stopped
     healthcheck:
@@ -55,7 +55,7 @@ services:
     devices:
       - "/dev/ttyACM0:/dev/ttyACM0"  # Serial port - adjust if different
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
