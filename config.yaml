@@ -32,7 +32,7 @@ logging:
   buffer_size: 1000
   commander:
     level: INFO
-  file_output: /home/jacob/parol6/logs/parol6.log
+  file_output: logs/parol6.log
   frontend:
     level: INFO
   initial_log_count: 100
@@ -54,7 +54,7 @@ server:
   log_forward_port: 5003
   loop_interval: 0.01
 ui:
-  active_tool: standard_90deg_tool
+  active_tool: pneuhorisontal
   cartesian_position_step_mm: 1
   commander_robot:
     color: '#ffffff'

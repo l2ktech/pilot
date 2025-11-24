@@ -233,6 +233,11 @@ def setup_logging(config: Dict[str, Any], service_name: str = None):
 
     # File handler
     if file_output:
+        # Create directory if it doesn't exist
+        from pathlib import Path
+        log_path = Path(file_output)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
         file_handler = logging.FileHandler(file_output)
         file_handler.setLevel(getattr(logging, level.upper()))
         file_handler.setFormatter(console_formatter)

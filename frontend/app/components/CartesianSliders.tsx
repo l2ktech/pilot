@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useInputStore, useCommandStore, useRobotConfigStore, useConfigStore } from '@/app/lib/stores';
+import { useInputStore, useCommandStore, useRobotConfigStore } from '@/app/lib/stores';
+import { useConfigStore } from '@/app/lib/configStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { CARTESIAN_AXES, CARTESIAN_LIMITS } from '@/app/lib/constants';
 import { Slider } from '@/components/ui/slider';
