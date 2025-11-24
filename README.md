@@ -125,20 +125,16 @@ git clone https://github.com/jointAxis77/parol6-webcommander.git
 cd parol6-webcommander
 ```
 
-**Step 2: Create configuration file**
-```bash
-# Copy the example config
-cp config.yaml.example config.yaml
+**Step 2: Configure serial port (if needed)**
 
-# Edit with your settings
+The default `config.yaml` should work out of the box. If your robot uses a different serial port, edit it:
+```bash
 nano config.yaml
 ```
 
-Update these key settings:
 ```yaml
 robot:
-  com_port: /dev/ttyACM0    # Your robot's serial port
-  baud_rate: 3000000        # Usually 3000000 for PAROL6
+  com_port: /dev/ttyACM0    # Change if your port is different
 ```
 
 **Step 3: Check serial port**

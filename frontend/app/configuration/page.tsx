@@ -50,11 +50,15 @@ interface Tool {
 function StaticURDFRobot({
   onRobotLoad,
   color,
-  transparency
+  transparency,
+  metalness,
+  roughness
 }: {
   onRobotLoad: (robot: any) => void;
   color: string;
   transparency: number;
+  metalness: number;
+  roughness: number;
 }) {
   const [localRobot, setLocalRobot] = useState<any>(null);
 
@@ -83,7 +87,7 @@ function StaticURDFRobot({
           applyJointAnglesToUrdf(loadedRobot, fixedAngles);
           loadedRobot.updateMatrixWorld(true);
 
-          // Clone materials (don't set color here - let the second effect handle it)
+          // Convert materials to MeshStandardMaterial for PBR support
           loadedRobot.traverse((child: any) => {
             if (child.isMesh && child.material) {
               const materials = Array.isArray(child.material) ? child.material : [child.material];
@@ -91,10 +95,19 @@ function StaticURDFRobot({
 
               materials.forEach((mat: any) => {
                 if (mat) {
-                  const clonedMat = mat.clone();
-                  clonedMat.metalness = 0.2;
-                  clonedMat.roughness = 0.7;
-                  newMaterials.push(clonedMat);
+                  // Convert to MeshStandardMaterial if it isn't already
+                  let standardMat: any;
+                  if (mat.isMeshStandardMaterial) {
+                    standardMat = mat.clone();
+                  } else {
+                    // Create new MeshStandardMaterial with original color
+                    standardMat = new THREE.MeshStandardMaterial({
+                      color: mat.color || 0xffffff,
+                      map: mat.map || null,
+                      side: mat.side || THREE.FrontSide
+                    });
+                  }
+                  newMaterials.push(standardMat);
                 }
               });
 
@@ -123,24 +136,27 @@ function StaticURDFRobot({
     };
   }, []);
 
-  // Re-apply color and transparency when they change
+  // Re-apply color, transparency, and material properties when they change
   useEffect(() => {
     if (localRobot) {
       localRobot.traverse((child: any) => {
         if (child.isMesh && child.material) {
           const materials = Array.isArray(child.material) ? child.material : [child.material];
           materials.forEach((mat: any) => {
-            if (mat) {
+            if (mat && mat.isMeshStandardMaterial) {
+              // All materials are now MeshStandardMaterial, so we can set all properties
               mat.color.set(color);
               mat.transparent = transparency < 1.0;
               mat.opacity = transparency;
+              mat.metalness = metalness;
+              mat.roughness = roughness;
               mat.needsUpdate = true;
             }
           });
         }
       });
     }
-  }, [color, transparency, localRobot]);
+  }, [color, transparency, metalness, roughness, localRobot]);
 
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
@@ -158,7 +174,9 @@ function STLMesh({
   stlGeometryClosed,
   displayState,
   color,
-  transparency
+  transparency,
+  metalness,
+  roughness
 }: {
   stlGeometry: THREE.BufferGeometry | null;
   robotRef: any;
@@ -168,6 +186,8 @@ function STLMesh({
   displayState?: 'open' | 'closed';
   color: string;
   transparency: number;
+  metalness: number;
+  roughness: number;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const meshOpenRef = useRef<THREE.Mesh>(null);
@@ -245,8 +265,8 @@ function STLMesh({
             color={color}
             transparent={transparency < 1.0}
             opacity={transparency}
-            metalness={0.3}
-            roughness={0.6}
+            metalness={metalness}
+            roughness={roughness}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -259,8 +279,8 @@ function STLMesh({
             color={color}
             transparent={transparency < 1.0}
             opacity={transparency}
-            metalness={0.3}
-            roughness={0.6}
+            metalness={metalness}
+            roughness={roughness}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -273,8 +293,8 @@ function STLMesh({
             color={color}
             transparent={transparency < 1.0}
             opacity={transparency}
-            metalness={0.3}
-            roughness={0.6}
+            metalness={metalness}
+            roughness={roughness}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -329,6 +349,11 @@ export default function ConfigurationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
   const [robotView, setRobotView] = useState<'commander' | 'hardware'>('commander'); // Which robot to show in 3D view
+
+  // Material properties (for testing, not saved to config)
+  // Default values for shiny white plastic look
+  const [metalness, setMetalness] = useState(0.1);
+  const [roughness, setRoughness] = useState(0.25);
 
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -1450,6 +1475,45 @@ export default function ConfigurationPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Material Properties */}
+              <div className="pt-2 mt-2 border-t border-border">
+                <label className="text-[10px] text-muted-foreground block mb-2">Material Properties</label>
+
+                {/* Metalness */}
+                <div className="mb-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] text-muted-foreground">Metalness</span>
+                    <span className="text-[9px] text-muted-foreground">{metalness.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={metalness}
+                    onChange={(e) => setMetalness(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Roughness */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] text-muted-foreground">Roughness</span>
+                    <span className="text-[9px] text-muted-foreground">{roughness.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={roughness}
+                    onChange={(e) => setRoughness(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Save Button */}
@@ -1499,6 +1563,8 @@ export default function ConfigurationPage() {
                 onRobotLoad={setRobot}
                 color={robotView === 'commander' ? commanderRobotColor : hardwareRobotColor}
                 transparency={robotView === 'commander' ? commanderRobotTransparency : hardwareRobotTransparency}
+                metalness={metalness}
+                roughness={roughness}
               />
 
               {/* Uploaded STL Mesh - positioned at L6 attachment point, color and transparency match robot */}
@@ -1511,6 +1577,8 @@ export default function ConfigurationPage() {
                 displayState={displayState}
                 color={robotView === 'commander' ? commanderRobotColor : hardwareRobotColor}
                 transparency={robotView === 'commander' ? commanderRobotTransparency : hardwareRobotTransparency}
+                metalness={metalness}
+                roughness={roughness}
               />
 
               {/* TCP Gizmo (orange/cyan/magenta arrows) - shows functional tool center point */}

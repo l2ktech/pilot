@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import Header from './components/Header';
 import RobotViewer from './components/RobotViewer';
 import CompactJointSliders from './components/CompactJointSliders';
@@ -104,6 +104,7 @@ export default function Home() {
   const liveControlEnabled = useCommandStore((state) => state.liveControlEnabled);
   const setLiveControlEnabled = useCommandStore((state) => state.setLiveControlEnabled);
   const hardwareJointAngles = useHardwareStore((state) => state.hardwareJointAngles);
+  const connectionStatus = useHardwareStore((state) => state.connectionStatus);
 
   // Gripper state
   const commandedGripperState = useCommandStore((state) => state.commandedGripperState);
@@ -124,26 +125,34 @@ export default function Home() {
   // Track if we've synced the RGB gizmo for current cartesian session
   const hasSyncedRef = useRef(false);
 
+  // Fetch tools from backend
+  const fetchTools = useCallback(async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/config/tools`);
+      if (response.ok) {
+        const data = await response.json();
+        setTools(data.tools || []);
+        setActiveToolId(data.active_tool_id || null);
+      }
+    } catch (error) {
+      logger.error('Failed to fetch tools', 'page', error);
+    }
+  }, []);
+
+  // Fetch config and tools on mount
   useEffect(() => {
     fetchConfig();
-  }, [fetchConfig]);
-
-  // Fetch tools from backend on mount
-  useEffect(() => {
-    const fetchTools = async () => {
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/api/config/tools`);
-        if (response.ok) {
-          const data = await response.json();
-          setTools(data.tools || []);
-          setActiveToolId(data.active_tool_id || null);
-        }
-      } catch (error) {
-        logger.error('Failed to fetch tools', 'page', error);
-      }
-    };
     fetchTools();
-  }, []);
+  }, [fetchConfig, fetchTools]);
+
+  // Re-fetch config and tools when backend connection is established
+  // This handles the case where frontend loads while backend is offline
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      fetchConfig();
+      fetchTools();
+    }
+  }, [connectionStatus, fetchConfig, fetchTools]);
 
   // Apply TCP offset and sync tool to all stores when active tool is loaded
   useEffect(() => {

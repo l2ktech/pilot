@@ -30,11 +30,11 @@ import shutil
 import base64
 
 # Import robot client (UDP client to commander) and models
-import robot_client
+from api import robot_client
 from api.models import *
-from websocket_manager import ConnectionManager
+from api.websocket_manager import ConnectionManager
 from api.utils.logging_handler import get_websocket_handler, setup_logging
-from camera_manager import get_camera_manager
+from api.camera_manager import get_camera_manager
 
 import numpy as np
 import psutil

@@ -1646,6 +1646,16 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         </GizmoHelper>
       </Canvas>
 
+      {/* Disconnected Overlay */}
+      {connectionStatus !== 'connected' && (
+        <div className="absolute inset-0 bg-blue-900/70 flex items-center justify-center z-20 backdrop-blur-sm">
+          <div className="text-white text-center">
+            <div className="text-2xl font-semibold mb-2">Cannot connect to backend</div>
+            <div className="text-sm text-blue-200">Waiting for API server on port 3001...</div>
+          </div>
+        </div>
+      )}
+
       {/* Safety confirmation dialog */}
       <SafetyDialog />
 

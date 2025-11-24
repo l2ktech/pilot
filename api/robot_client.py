@@ -6,6 +6,7 @@ The tracking system is only initialized when explicitly requested.
 """
 
 import socket
+import os
 from typing import List, Optional, Literal, Dict, Tuple, Union
 import time
 import threading
@@ -18,9 +19,11 @@ import logging
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 
-# Global configuration
-SERVER_IP = "127.0.0.1"
-SERVER_PORT = 5001
+# Global configuration - can be overridden by environment variables
+# COMMANDER_HOST: IP/hostname where commander is listening (default: 127.0.0.1)
+# COMMANDER_PORT: UDP port for commander commands (default: 5001)
+SERVER_IP = os.environ.get("COMMANDER_HOST", "127.0.0.1")
+SERVER_PORT = int(os.environ.get("COMMANDER_PORT", "5001"))
 
 # Global tracker - starts as None (no resources)
 _command_tracker = None

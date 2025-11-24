@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useInputStore, useCommandStore, useRobotConfigStore } from '@/app/lib/stores';
+import { useInputStore, useCommandStore, useRobotConfigStore, useConfigStore } from '@/app/lib/stores';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { CARTESIAN_AXES, CARTESIAN_LIMITS } from '@/app/lib/constants';
 import { Slider } from '@/components/ui/slider';
@@ -32,6 +32,10 @@ export default function CartesianSliders() {
   const tcpOffset = useRobotConfigStore((state) => state.tcpOffset);
   const ikAxisMask = useRobotConfigStore((state) => state.ikAxisMask);
   const setIkAxisMask = useRobotConfigStore((state) => state.setIkAxisMask);
+
+  // Global config: Check if frontend is in debug mode
+  const config = useConfigStore((state) => state.config);
+  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
 
   const [ikStatus, setIkStatus] = useState<{
     type: 'idle' | 'computing' | 'success' | 'error';
@@ -279,29 +283,31 @@ export default function CartesianSliders() {
         })}
       </div>
 
-      {/* IK Axis Mask Selector */}
-      <div className="mt-4 pt-4 border-t">
-        <div className="text-xs font-semibold mb-2 text-muted-foreground">IK Solve Axes:</div>
-        <div className="flex flex-wrap gap-2">
-          {(['X', 'Y', 'Z', 'RX', 'RY', 'RZ'] as const).map((axis) => (
-            <label key={axis} className="flex items-center gap-2 cursor-pointer">
-              <Checkbox
-                checked={ikAxisMask[axis]}
-                onCheckedChange={(checked) => {
-                  setIkAxisMask({ [axis]: checked === true });
-                }}
-                className="w-4 h-4"
-              />
-              <span className="text-xs font-medium">
-                {axis}
-              </span>
-            </label>
-          ))}
+      {/* IK Axis Mask Selector - Only show in debug mode */}
+      {isDebugMode && (
+        <div className="mt-4 pt-4 border-t">
+          <div className="text-xs font-semibold mb-2 text-muted-foreground">IK Solve Axes:</div>
+          <div className="flex flex-wrap gap-2">
+            {(['X', 'Y', 'Z', 'RX', 'RY', 'RZ'] as const).map((axis) => (
+              <label key={axis} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={ikAxisMask[axis]}
+                  onCheckedChange={(checked) => {
+                    setIkAxisMask({ [axis]: checked === true });
+                  }}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs font-medium">
+                  {axis}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground italic">
+            Select which axes to solve during IK computation
+          </div>
         </div>
-        <div className="mt-2 text-xs text-muted-foreground italic">
-          Select which axes to solve during IK computation
-        </div>
-      </div>
+      )}
 
       {/* Copy TCP and Compute IK Buttons */}
       <div className="mt-4 grid grid-cols-2 gap-2">

@@ -6,7 +6,7 @@ services:
     image: ghcr.io/jointaxis77/parol6-webcommander/frontend:latest
     container_name: parol6-frontend
     ports:
-      - "3000:3000"
+      - "3000:3000"  # Web UI
     environment:
       - NODE_ENV=production
     restart: unless-stopped
@@ -24,13 +24,15 @@ services:
     image: ghcr.io/jointaxis77/parol6-webcommander/api:latest
     container_name: parol6-api
     ports:
-      - "3001:3001"
-      - "5001:5001/udp"
-      - "5002:5002/udp"
-      - "5003:5003/udp"
+      - "3001:3001"        # HTTP API & WebSocket (external access)
+      - "5002:5002/udp"    # Commander sends ack responses here
+      - "5003:5003/udp"    # Commander sends logs here
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allows container to reach host
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
+      - COMMANDER_HOST=host.docker.internal  # Commander runs on host network
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - recordings:/app/recordings
@@ -45,19 +47,19 @@ services:
       - parol6
 
   # Commander - Robot Control
+  # Uses host network for UDP communication with API container
   commander:
     image: ghcr.io/jointaxis77/parol6-webcommander/commander:latest
     container_name: parol6-commander
-    network_mode: host  # Required for UDP communication with API
+    network_mode: host
     devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"  # Serial port mapping - adjust if different
+      - "/dev/ttyACM0:/dev/ttyACM0"  # Serial port - adjust if different
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
     restart: unless-stopped
-    # Note: No healthcheck for commander (no HTTP endpoint)
 
 networks:
   parol6:
