@@ -87,16 +87,18 @@ export default function CartesianSliders() {
     }
 
     // DEBUG: Log tool and target pose
-    console.log('========== IK (Frontend) Button Clicked ==========');
-    console.log('Target TCP Pose:', inputCartesianPose);
-    console.log('Computation Tool:', {
-      id: computationTool.id,
-      name: computationTool.name,
-      tcp_offset: computationTool.tcp_offset
-    });
-    console.log('Seed Joints:', commandedJointAngles);
-    console.log('IK Axis Mask:', ikAxisMask);
-    console.log('==================================================');
+    if (isDebugMode) {
+      console.log('========== IK (Frontend) Button Clicked ==========');
+      console.log('Target TCP Pose:', inputCartesianPose);
+      console.log('Computation Tool:', {
+        id: computationTool.id,
+        name: computationTool.name,
+        tcp_offset: computationTool.tcp_offset
+      });
+      console.log('Seed Joints:', commandedJointAngles);
+      console.log('IK Axis Mask:', ikAxisMask);
+      console.log('==================================================');
+    }
 
     logger.debug('Inputs', 'IKSolve', {
       targetPose: inputCartesianPose,
@@ -122,13 +124,15 @@ export default function CartesianSliders() {
       );
 
       // DEBUG: Log IK result
-      console.log('========== IK Result ==========');
-      console.log('Success:', ikResult.success);
-      console.log('Joint Angles:', ikResult.jointAngles);
-      console.log('Iterations:', ikResult.iterations);
-      console.log('Final Error:', ikResult.finalError);
-      console.log('Error Details:', ikResult.error);
-      console.log('===============================');
+      if (isDebugMode) {
+        console.log('========== IK Result ==========');
+        console.log('Success:', ikResult.success);
+        console.log('Joint Angles:', ikResult.jointAngles);
+        console.log('Iterations:', ikResult.iterations);
+        console.log('Final Error:', ikResult.finalError);
+        console.log('Error Details:', ikResult.error);
+        console.log('===============================');
+      }
 
       logger.debug('Result', 'IKSolve', ikResult);
 
@@ -231,7 +235,7 @@ export default function CartesianSliders() {
             : currentValue.toFixed(1);
 
           return (
-            <div key={axis} className="space-y-1 pb-2 border-b last:border-b-0">
+            <div key={axis} className="space-y-1 pb-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">{axis}</span>
                 <span className="text-xs text-muted-foreground">
@@ -267,17 +271,14 @@ export default function CartesianSliders() {
                 >
                   <ChevronRight className="h-3 w-3" />
                 </Button>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="text"
-                    value={displayValue}
-                    onChange={(e) => handleInputChange(axis, e.target.value)}
-                    onBlur={() => handleInputBlur(axis)}
-                    onKeyDown={(e) => handleInputKeyDown(axis, e)}
-                    className="w-12 h-6 px-1 text-xs font-mono text-right"
-                  />
-                  <span className="text-xs text-muted-foreground w-6">{unit}</span>
-                </div>
+                <Input
+                  type="text"
+                  value={displayValue}
+                  onChange={(e) => handleInputChange(axis, e.target.value)}
+                  onBlur={() => handleInputBlur(axis)}
+                  onKeyDown={(e) => handleInputKeyDown(axis, e)}
+                  className="w-14 h-6 px-1 text-xs font-mono text-right"
+                />
               </div>
             </div>
           );

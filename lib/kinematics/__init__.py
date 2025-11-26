@@ -10,7 +10,6 @@ Exports:
 """
 
 # Import submodules so they can be accessed as:
-# from lib.kinematics import ik_solver, robot_model, trajectory_math
 from . import ik_solver
 from . import robot_model
 from . import trajectory_math

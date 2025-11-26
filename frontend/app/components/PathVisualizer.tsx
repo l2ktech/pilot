@@ -12,7 +12,7 @@ import { calculateTcpPoseFromUrdf } from '../lib/tcpCalculations';
 import { applyJointAnglesToUrdf } from '../lib/urdfHelpers';
 import { robotToThreeJs } from '../lib/coordinateTransform';
 import { inverseKinematicsDetailed } from '../lib/kinematics';
-import type { Keyframe, JointAngles, Tool } from '../types';
+import type { Keyframe, JointAngles, Tool } from '../lib/types';
 import { logger } from '../lib/logger';
 import { JOINT_NAMES } from '../lib/constants';
 import { getToolForSegment } from '../lib/toolHelpers';
@@ -85,8 +85,12 @@ export default function PathVisualizer({ visible = true, availableTools }: PathV
 
       // Skip segments with no actual motion (e.g., tool-change-only keyframes)
       // Check if all joint angles are identical between consecutive keyframes
+      const startAngles = startKeyframe.jointAngles;
+      const endAngles = endKeyframe.jointAngles;
+      if (!startAngles || !endAngles) continue; // Skip if no joint angles
+
       const hasMotion = JOINT_NAMES.some(joint =>
-        Math.abs(startKeyframe.jointAngles[joint] - endKeyframe.jointAngles[joint]) > 0.01
+        Math.abs(startAngles[joint] - endAngles[joint]) > 0.01
       );
 
       if (!hasMotion) {
@@ -112,8 +116,9 @@ export default function PathVisualizer({ visible = true, availableTools }: PathV
 
           // Re-solve IK for loop-adjusted keyframes to get correct joint angles
           // (applyLoopDeltasToKeyframe only modifies cartesian pose, not joint angles)
-          let startJointAngles = startKfForLoop.jointAngles || startKeyframe.jointAngles;
-          let endJointAngles = endKfForLoop.jointAngles || endKeyframe.jointAngles;
+          // Note: startAngles and endAngles are validated above (we continue if missing)
+          let startJointAngles = startKfForLoop.jointAngles || startAngles;
+          let endJointAngles = endKfForLoop.jointAngles || endAngles;
 
           // For loop iterations > 0, we need to re-solve IK since the cartesian pose changed
           if (loop > 0 && startKfForLoop.cartesianPose) {

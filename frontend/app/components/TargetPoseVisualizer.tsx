@@ -22,14 +22,12 @@ export default function TargetPoseVisualizer() {
   const inputCartesianPose = useInputStore((state) => state.inputCartesianPose);
   const motionMode = useTimelineStore((state) => state.timeline.mode);
 
-  // Only show this gizmo in cartesian mode - it represents a cartesian target
-  if (motionMode !== 'cartesian') {
-    return null;
-  }
+  // Only show in cartesian mode
+  const isVisible = motionMode === 'cartesian';
 
   // Create arrows on mount
   useEffect(() => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || !isVisible) return;
 
     // Arrow length in meters (50mm = 0.05m)
     const arrowLength = 0.05;
@@ -85,11 +83,11 @@ export default function TargetPoseVisualizer() {
         zArrowRef.current.dispose();
       }
     };
-  }, []);
+  }, [isVisible]);
 
   // Update input pose position and orientation every frame
   useFrame(() => {
-    if (!parentGroupRef.current || !groupRef.current) return;
+    if (!parentGroupRef.current || !groupRef.current || !isVisible) return;
 
     // Convert input pose from robot coordinates (Z-up) to Three.js (Y-up) for rendering
     const threeJsPose = robotToThreeJs(inputCartesianPose);
@@ -112,6 +110,11 @@ export default function TargetPoseVisualizer() {
       (inputCartesianPose.RZ * Math.PI) / 180   // Rotation around robot Z
     );
   });
+
+  // Only render in cartesian mode
+  if (!isVisible) {
+    return null;
+  }
 
   return (
     <group ref={parentGroupRef}>

@@ -62,3 +62,6 @@ ecosystem.config.js
 *_old.*
 *.backup
 *.bak
+
+# Documentation
+docs

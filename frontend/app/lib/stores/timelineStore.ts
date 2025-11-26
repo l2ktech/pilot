@@ -156,8 +156,25 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
 
     // Get current tool state from commandStore
     const commandStore = useCommandStore.getState();
-    const toolId = commandStore.commanderTool?.id || null;
+    const tool = commandStore.commanderTool;
+    const toolId = tool?.id || null;
     const gripperState = commandStore.commandedGripperState;
+
+    // Derive output states - default to false (LOW), override if tool controls an output
+    let output_1: boolean = false;
+    let output_2: boolean = false;
+
+    if (tool?.gripper_config?.enabled && gripperState) {
+      const ioPin = tool.gripper_config.io_pin;
+      const openIsHigh = tool.gripper_config.open_is_high;
+      const outputValue = gripperState === 'open' ? openIsHigh : !openIsHigh;
+
+      if (ioPin === 1) {
+        output_1 = outputValue;
+      } else if (ioPin === 2) {
+        output_2 = outputValue;
+      }
+    }
 
     // Record or update a single keyframe (containing cartesian pose) at current time
     // If keyframe already exists at this time, update it instead of creating new
@@ -171,12 +188,21 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         cartesianPose,
         ...(jointAngles && { jointAngles }),
         ...(toolId && { toolId }),
-        gripperState
+        gripperState,
+        output_1,
+        output_2
       };
       state.updateKeyframe(existingKeyframe.id, updates);
     } else {
-      // Create new keyframe with all properties including tool state
+      // Create new keyframe with all properties including tool state and outputs
       state.addKeyframe(currentTime, cartesianPose, jointAngles, toolId, gripperState);
+
+      // Add output states to the newly created keyframe
+      const newKeyframes = get().timeline.keyframes;
+      const newKeyframe = newKeyframes.find(kf => Math.abs(kf.time - currentTime) < 0.001);
+      if (newKeyframe) {
+        state.updateKeyframe(newKeyframe.id, { output_1, output_2 });
+      }
     }
   },
 

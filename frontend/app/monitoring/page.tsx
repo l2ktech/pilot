@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recharts';
 import { useMonitoringStore } from '../lib/stores/monitoringStore';
-import { RefreshCw, AlertTriangle, CheckCircle, XCircle, Cpu, HardDrive, MemoryStick, Thermometer } from 'lucide-react';
+import { useHardwareStore } from '../lib/stores/hardwareStore';
+import { RefreshCw, AlertTriangle, CheckCircle, XCircle, Cpu, HardDrive, MemoryStick, Thermometer, Activity } from 'lucide-react';
 
 export default function MonitoringPage() {
   const currentMetrics = useMonitoringStore((state) => state.currentMetrics);
@@ -16,6 +17,8 @@ export default function MonitoringPage() {
   const isLoading = useMonitoringStore((state) => state.isLoading);
   const error = useMonitoringStore((state) => state.error);
   const restartProcess = useMonitoringStore((state) => state.restartProcess);
+  const ioStatus = useHardwareStore((state) => state.ioStatus);
+  const gripperStatus = useHardwareStore((state) => state.gripperStatus);
 
   // State for restart loading
   const [restartingProcess, setRestartingProcess] = useState<string | null>(null);
@@ -163,6 +166,62 @@ export default function MonitoringPage() {
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               Uptime: {formatUptime(currentMetrics?.uptime_seconds || 0)}
+            </div>
+          </Card>
+
+          {/* I/O Status Card */}
+          <Card className="p-4 md:col-span-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+              <Activity className="w-4 h-4" />
+              I/O Status
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <span className={ioStatus?.input_1 ? 'text-green-500' : 'text-gray-400'}>
+                  {ioStatus?.input_1 ? '●' : '○'}
+                </span>
+                <span className="text-muted-foreground">IN1:</span>
+                <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.input_1 ? '1' : '0'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={ioStatus?.output_1 ? 'text-green-500' : 'text-gray-400'}>
+                  {ioStatus?.output_1 ? '●' : '○'}
+                </span>
+                <span className="text-muted-foreground">OUT1:</span>
+                <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.output_1 ? '1' : '0'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={ioStatus?.input_2 ? 'text-green-500' : 'text-gray-400'}>
+                  {ioStatus?.input_2 ? '●' : '○'}
+                </span>
+                <span className="text-muted-foreground">IN2:</span>
+                <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.input_2 ? '1' : '0'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={ioStatus?.output_2 ? 'text-green-500' : 'text-gray-400'}>
+                  {ioStatus?.output_2 ? '●' : '○'}
+                </span>
+                <span className="text-muted-foreground">OUT2:</span>
+                <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.output_2 ? '1' : '0'}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 mt-3 pt-2 border-t text-sm">
+              <div className="flex items-center gap-2">
+                <span className={!ioStatus ? 'text-gray-500' :
+                               !ioStatus.estop_pressed ? 'text-green-500' : 'text-red-500'}>
+                  {!ioStatus ? '-' : !ioStatus.estop_pressed ? '✓' : '✗'}
+                </span>
+                <span className="text-muted-foreground">E-STOP:</span>
+                <span className="font-medium">
+                  {!ioStatus ? 'N/A' : !ioStatus.estop_pressed ? 'OK' : 'PRESSED'}
+                </span>
+              </div>
+              {gripperStatus && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <span>Gripper:</span>
+                  <span className="font-mono">{gripperStatus.position ?? 'N/A'}</span>
+                </div>
+              )}
             </div>
           </Card>
         </div>

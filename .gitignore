@@ -72,3 +72,6 @@ frontend/logs/
 
 # Reference library (installed separately via requirements.txt)
 rtb-reference/
+
+# Documentation (generated)
+docs/

@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { JointAngles, CartesianPose, IkAxisMask, Tool } from './types';
 import { STANDBY_POSITION, ORIENTATION_CONFIG, JOINT_ANGLE_OFFSETS, JOINT_LIMITS } from './constants';
-import { useTimelineStore } from './store';
+import { useTimelineStore } from './stores/timelineStore';
 import { calculateTcpPoseFromUrdf } from './tcpCalculations';
 import { threeJsToRobot } from './coordinateTransform';
 import { applyJointAnglesToUrdf } from './urdfHelpers';

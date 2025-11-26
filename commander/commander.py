@@ -1,11 +1,12 @@
 '''
-A full fledged "API" for the PAROL6 robot. To use this, you should pair it with the "robot_api.py" where you can import commands
-from said file and use them anywhere within your code. This Python script will handle sending and performing all the commands
-to the PAROL6 robot, as well as E-Stop functionality and safety limitations.
+Commander control loop for PAROL6 Robot.
 
-To run this program, you must use the "experimental-kinematics" branch of the "PAROL-commander-software" on GitHub
-which can be found through this link: https://github.com/PCrnjak/PAROL-commander-software/tree/experimental_kinematics.
-You must also save these files into the following folder: "Project Files\PAROL-commander-software\GUI\files".
+Handles:
+- UDP communication with FastAPI server
+- Serial communication with robot hardware
+- Real-time kinematics computation
+- Command queue execution
+- Safety and validation checks
 '''
 
 # * If you press estop robot will stop and you need to enable it by pressing e
@@ -523,14 +524,7 @@ def Get_data(Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Positio
                     Unpack_data(data_buffer, Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
                     XTR_data,Gripper_data_in)
                     logger.debug("DATA UNPACK FINISHED")
-                    # ako su dobri izračunaj crc
-                    # if crc dobar raspakiraj podatke
-                    # ako je dobar paket je dobar i spremi ga u nove variable!
-                
-                # Print every byte
-                #print("podaci u data bufferu su:")
-                #for i in range(data_len):
-                    #print(data_buffer[i])
+                    # Validate CRC, unpack data if valid, store in variables
 
                 good_start = 0
                 start_cond1 = 0
@@ -548,7 +542,6 @@ def Split_2_3_bytes(var_in):
 
 # Splits byte to bitfield list
 def Split_2_bitfield(var_in):
-    #return [var_in >> i & 1 for i in range(7,-1,-1)] 
     return [(var_in >> i) & 1 for i in range(7, -1, -1)]
 
 # Fuses 3 bytes to 1 signed int

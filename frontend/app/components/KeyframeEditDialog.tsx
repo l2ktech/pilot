@@ -19,6 +19,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { useTimelineStore } from '@/app/lib/stores/timelineStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { useRobotConfigStore } from '@/app/lib/stores/robotConfigStore';
@@ -36,12 +39,14 @@ interface KeyframeEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   keyframeId: string | null;
+  onSave?: (keyframeId: string) => void;
 }
 
 export default function KeyframeEditDialog({
   open,
   onOpenChange,
-  keyframeId
+  keyframeId,
+  onSave
 }: KeyframeEditDialogProps) {
   const keyframes = useTimelineStore((state) => state.timeline.keyframes);
   const updateKeyframeValues = useTimelineStore((state) => state.updateKeyframeValues);
@@ -61,6 +66,8 @@ export default function KeyframeEditDialog({
   const [localToolId, setLocalToolId] = useState<string | null>(null);
   const [localGripperState, setLocalGripperState] = useState<'open' | 'closed' | null>(null);
   const [localLoopDeltas, setLocalLoopDeltas] = useState<Partial<CartesianPose>>({});
+  const [localOutput1, setLocalOutput1] = useState<boolean | undefined>(undefined);
+  const [localOutput2, setLocalOutput2] = useState<boolean | undefined>(undefined);
   const [ikError, setIkError] = useState<string | null>(null);
   const [fkError, setFkError] = useState<string | null>(null);
 
@@ -97,7 +104,7 @@ export default function KeyframeEditDialog({
       // Test frontend → backend logging
       logger.info(`Opening keyframe edit dialog for keyframe at ${keyframe.time.toFixed(2)}s`, 'KeyframeEditDialog');
 
-      setLocalJointAngles(keyframe.jointAngles);
+      setLocalJointAngles(keyframe.jointAngles || null);
 
       // Use stored cartesian pose if available, otherwise will compute on FK button click
       setLocalCartesianPose(keyframe.cartesianPose || {
@@ -111,11 +118,36 @@ export default function KeyframeEditDialog({
       // Initialize loop deltas from keyframe
       setLocalLoopDeltas(keyframe.loopDeltas || {});
 
+      // Initialize output states from keyframe
+      setLocalOutput1(keyframe.output_1);
+      setLocalOutput2(keyframe.output_2);
+
       setIkError(null);
       setFkError(null);
       setInputValues({});
     }
   }, [keyframe, computationRobotRef, computationTool]);
+
+  // Sync output states with gripper state when tool controls them
+  useEffect(() => {
+    if (!localToolId) return;
+
+    const tool = availableTools.find(t => t.id === localToolId);
+    if (!tool?.gripper_config?.enabled) return;
+
+    const ioPin = tool.gripper_config.io_pin;
+    const openIsHigh = tool.gripper_config.open_is_high;
+
+    // Derive output state from gripper state
+    const outputValue = localGripperState === 'open' ? openIsHigh : !openIsHigh;
+
+    // Update the output that this tool controls
+    if (ioPin === 1) {
+      setLocalOutput1(outputValue);
+    } else if (ioPin === 2) {
+      setLocalOutput2(outputValue);
+    }
+  }, [localToolId, localGripperState, availableTools]);
 
   // Auto-IK: Solve IK when cartesian pose changes (debounced)
   useEffect(() => {
@@ -221,10 +253,18 @@ export default function KeyframeEditDialog({
     if (Object.keys(localLoopDeltas).length > 0) {
       updates.loopDeltas = localLoopDeltas;
     }
+    // Include output states (always store them since they drive playback)
+    updates.output_1 = localOutput1;
+    updates.output_2 = localOutput2;
 
     const updateKeyframe = useTimelineStore.getState().updateKeyframe;
     updateKeyframe(keyframe.id, updates);
     onOpenChange(false);
+
+    // Notify parent to re-calculate trajectories for affected segments
+    if (onSave) {
+      onSave(keyframe.id);
+    }
   };
 
   // Cancel changes
@@ -277,202 +317,424 @@ export default function KeyframeEditDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-6 mt-4">
-          {/* Left Column: Joint Angles */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold mb-3">Joint Angles</h3>
-            {JOINT_NAMES.map((joint) => {
-              const limits = JOINT_LIMITS[joint];
-              const currentValue = localJointAngles[joint];
-              const displayValue = inputValues[joint] !== undefined && inputValues[joint] !== ''
-                ? inputValues[joint]
-                : currentValue.toFixed(1);
+        <Tabs defaultValue="pose" className="mt-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="pose">Pose</TabsTrigger>
+            <TabsTrigger value="advanced">Advanced</TabsTrigger>
+          </TabsList>
 
-              return (
-                <div key={joint} className="space-y-2">
-                  <div className="flex justify-between items-center text-sm gap-2">
-                    <span className="font-medium w-8">{joint}</span>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="text"
-                        value={displayValue}
-                        onChange={(e) => handleInputChange(joint, e.target.value)}
-                        onBlur={() => handleInputBlur(joint, true)}
-                        onKeyDown={(e) => handleInputKeyDown(joint, true, e)}
-                        className="w-20 h-7 px-2 text-xs font-mono text-right"
-                      />
-                      <span className="text-xs text-muted-foreground w-4">°</span>
+          {/* Pose Tab - Cartesian + Tool/Gripper/Outputs */}
+          <TabsContent value="pose" className="space-y-6">
+            {/* Cartesian Pose Section */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold mb-3">Cartesian Pose</h3>
+              {CARTESIAN_AXES.map((axis) => {
+                const limits = CARTESIAN_LIMITS[axis];
+                const unit = getUnit(axis);
+                const step = ['X', 'Y', 'Z'].includes(axis) ? 1 : 0.1;
+                const currentValue = localCartesianPose[axis];
+                const displayValue = inputValues[axis] !== undefined && inputValues[axis] !== ''
+                  ? inputValues[axis]
+                  : currentValue.toFixed(1);
+                const loopDelta = localLoopDeltas[axis] || 0;
+                const showLoopControls = (loopIterations || 1) > 1;
+
+                return (
+                  <div key={axis} className="space-y-2">
+                    <div className="flex justify-between items-center text-sm gap-2">
+                      <span className="font-medium w-8">{axis}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="text"
+                          value={displayValue}
+                          onChange={(e) => handleInputChange(axis, e.target.value)}
+                          onBlur={() => handleInputBlur(axis, false)}
+                          onKeyDown={(e) => handleInputKeyDown(axis, false, e)}
+                          className="w-20 h-7 px-2 text-xs font-mono text-right"
+                        />
+                        <span className="text-xs text-muted-foreground w-8">{unit}</span>
+
+                        {/* Loop delta input (only show when looping is enabled) */}
+                        {showLoopControls && (
+                          <>
+                            <span className="text-xs text-muted-foreground ml-2">Δ/loop:</span>
+                            <Input
+                              type="number"
+                              value={loopDelta}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value);
+                                if (!isNaN(value)) {
+                                  handleLoopDeltaChange(axis, value);
+                                }
+                              }}
+                              className="w-16 h-7 px-2 text-xs font-mono text-right bg-green-900/20 border-green-500/50"
+                              title={`Add ${loopDelta}${unit} to ${axis} per loop iteration`}
+                              step={step}
+                            />
+                          </>
+                        )}
+                      </div>
                     </div>
+                    <Slider
+                      min={limits.min}
+                      max={limits.max}
+                      step={step}
+                      value={[currentValue]}
+                      onValueChange={(values) => handleCartesianChange(axis, values[0])}
+                      className="w-full"
+                    />
                   </div>
-                  <Slider
-                    min={limits.min}
-                    max={limits.max}
-                    step={0.1}
-                    value={[currentValue]}
-                    onValueChange={(values) => handleJointChange(joint, values[0])}
-                    className="w-full"
-                  />
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
 
-          {/* Middle Column: Sync & Status */}
-          <div className="flex flex-col justify-center items-center gap-4 min-w-[120px]">
-            {/* IK Status Indicator */}
-            <div className="flex flex-col items-center gap-2">
-              {!ikError ? (
-                <div className="flex items-center gap-2 text-green-500">
-                  <Check className="w-4 h-4" />
-                  <span className="text-xs">IK Valid</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-yellow-500" title={ikError}>
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-xs">IK Warning</span>
+              {/* IK Status */}
+              <div className="flex items-center gap-2 pt-2">
+                {!ikError ? (
+                  <div className="flex items-center gap-2 text-green-500">
+                    <Check className="w-4 h-4" />
+                    <span className="text-xs">IK Valid (auto-computed)</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-yellow-500" title={ikError}>
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-xs">IK Warning: {ikError}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Tool State Section */}
+            <div className="pt-4 border-t space-y-4">
+              <h3 className="text-sm font-semibold">Tool & I/O</h3>
+
+              {/* Tool Selector */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Active Tool</label>
+                <Select
+                  value={localToolId || undefined}
+                  onValueChange={(value) => setLocalToolId(value)}
+                  disabled={toolsLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={toolsLoading ? "Loading tools..." : "Select a tool"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTools.map((tool) => (
+                      <SelectItem key={tool.id} value={tool.id}>
+                        {tool.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Gripper State Toggle - Only show if selected tool has gripper enabled */}
+              {localToolId && availableTools.find(t => t.id === localToolId)?.gripper_config?.enabled && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Gripper State</label>
+                  <ToggleGroup
+                    type="single"
+                    value={localGripperState || undefined}
+                    onValueChange={(value) => setLocalGripperState(value as 'open' | 'closed')}
+                    className="justify-start"
+                  >
+                    <ToggleGroupItem value="open" aria-label="Open gripper">
+                      Open
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="closed" aria-label="Close gripper">
+                      Closed
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
               )}
-              <div className="text-xs text-muted-foreground text-center">
-                (Auto-computed)
-              </div>
-            </div>
 
-            {/* FK Button for manual joint edits */}
-            <Button
-              onClick={handleFK}
-              variant="outline"
-              size="sm"
-              className="w-full"
-              title="Forward Kinematics: Update cartesian pose from manual joint angle changes"
-            >
-              <ArrowLeftRight className="w-4 h-4 mr-2" />
-              Sync FK →
-            </Button>
+              {/* Output Switches */}
+              <div className="space-y-3 pt-2">
+                <label className="text-sm font-medium">Digital Outputs</label>
 
-            {ikError && (
-              <div className="bg-yellow-500/10 border border-yellow-500/50 rounded p-2 flex items-start gap-2">
-                <AlertCircle className="w-3 h-3 text-yellow-500 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-yellow-400">{ikError}</div>
-              </div>
-            )}
+                {/* Output 1 */}
+                {(() => {
+                  const selectedTool = localToolId ? availableTools.find(t => t.id === localToolId) : null;
+                  const toolControlsOutput1 = selectedTool?.gripper_config?.enabled && selectedTool?.gripper_config?.io_pin === 1;
 
-            {fkError && (
-              <div className="bg-red-500/10 border border-red-500/50 rounded p-2 flex items-start gap-2">
-                <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-red-400">{fkError}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Right Column: Cartesian Pose */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold mb-3">Cartesian Pose</h3>
-            {CARTESIAN_AXES.map((axis) => {
-              const limits = CARTESIAN_LIMITS[axis];
-              const unit = getUnit(axis);
-              const step = ['X', 'Y', 'Z'].includes(axis) ? 1 : 0.1;
-              const currentValue = localCartesianPose[axis];
-              const displayValue = inputValues[axis] !== undefined && inputValues[axis] !== ''
-                ? inputValues[axis]
-                : currentValue.toFixed(1);
-              const loopDelta = localLoopDeltas[axis] || 0;
-              const showLoopControls = (loopIterations || 1) > 1;
-
-              return (
-                <div key={axis} className="space-y-2">
-                  <div className="flex justify-between items-center text-sm gap-2">
-                    <span className="font-medium w-8">{axis}</span>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="text"
-                        value={displayValue}
-                        onChange={(e) => handleInputChange(axis, e.target.value)}
-                        onBlur={() => handleInputBlur(axis, false)}
-                        onKeyDown={(e) => handleInputKeyDown(axis, false, e)}
-                        className="w-20 h-7 px-2 text-xs font-mono text-right"
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="output1" className="text-sm">Output 1</Label>
+                        {toolControlsOutput1 && (
+                          <span className="text-xs text-muted-foreground">(Controlled by {selectedTool?.name})</span>
+                        )}
+                      </div>
+                      <Switch
+                        id="output1"
+                        checked={localOutput1 ?? false}
+                        onCheckedChange={(checked) => setLocalOutput1(checked)}
+                        disabled={toolControlsOutput1}
                       />
-                      <span className="text-xs text-muted-foreground w-8">{unit}</span>
-
-                      {/* Loop delta input (only show when looping is enabled) */}
-                      {showLoopControls && (
-                        <>
-                          <span className="text-xs text-muted-foreground ml-2">Δ/loop:</span>
-                          <Input
-                            type="number"
-                            value={loopDelta}
-                            onChange={(e) => {
-                              const value = parseFloat(e.target.value);
-                              if (!isNaN(value)) {
-                                handleLoopDeltaChange(axis, value);
-                              }
-                            }}
-                            className="w-16 h-7 px-2 text-xs font-mono text-right bg-green-900/20 border-green-500/50"
-                            title={`Add ${loopDelta}${unit} to ${axis} per loop iteration`}
-                            step={step}
-                          />
-                        </>
-                      )}
                     </div>
-                  </div>
-                  <Slider
-                    min={limits.min}
-                    max={limits.max}
-                    step={step}
-                    value={[currentValue]}
-                    onValueChange={(values) => handleCartesianChange(axis, values[0])}
-                    className="w-full"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  );
+                })()}
 
-        {/* Tool State Section */}
-        <div className="mt-6 pt-6 border-t space-y-4">
-          <h3 className="text-sm font-semibold">Tool State</h3>
+                {/* Output 2 */}
+                {(() => {
+                  const selectedTool = localToolId ? availableTools.find(t => t.id === localToolId) : null;
+                  const toolControlsOutput2 = selectedTool?.gripper_config?.enabled && selectedTool?.gripper_config?.io_pin === 2;
 
-          {/* Tool Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Active Tool</label>
-            <Select
-              value={localToolId || undefined}
-              onValueChange={(value) => setLocalToolId(value)}
-              disabled={toolsLoading}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={toolsLoading ? "Loading tools..." : "Select a tool"} />
-              </SelectTrigger>
-              <SelectContent>
-                {availableTools.map((tool) => (
-                  <SelectItem key={tool.id} value={tool.id}>
-                    {tool.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Gripper State Toggle - Only show if selected tool has gripper enabled */}
-          {localToolId && availableTools.find(t => t.id === localToolId)?.gripper_config?.enabled && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Gripper State</label>
-              <ToggleGroup
-                type="single"
-                value={localGripperState || undefined}
-                onValueChange={(value) => setLocalGripperState(value as 'open' | 'closed')}
-                className="justify-start"
-              >
-                <ToggleGroupItem value="open" aria-label="Open gripper">
-                  Open
-                </ToggleGroupItem>
-                <ToggleGroupItem value="closed" aria-label="Close gripper">
-                  Closed
-                </ToggleGroupItem>
-              </ToggleGroup>
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="output2" className="text-sm">Output 2</Label>
+                        {toolControlsOutput2 && (
+                          <span className="text-xs text-muted-foreground">(Controlled by {selectedTool?.name})</span>
+                        )}
+                      </div>
+                      <Switch
+                        id="output2"
+                        checked={localOutput2 ?? false}
+                        onCheckedChange={(checked) => setLocalOutput2(checked)}
+                        disabled={toolControlsOutput2}
+                      />
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
-          )}
-        </div>
+          </TabsContent>
+
+          {/* Advanced Tab - Everything from Pose + Joint Angles */}
+          <TabsContent value="advanced" className="space-y-6">
+            {/* Joint Angles Section */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold mb-3">Joint Angles</h3>
+                <Button
+                  onClick={handleFK}
+                  variant="outline"
+                  size="sm"
+                  title="Forward Kinematics: Update cartesian pose from joint angles"
+                >
+                  <ArrowLeftRight className="w-4 h-4 mr-2" />
+                  Sync FK →
+                </Button>
+              </div>
+              {fkError && (
+                <div className="bg-red-500/10 border border-red-500/50 rounded p-2 flex items-start gap-2">
+                  <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-red-400">{fkError}</div>
+                </div>
+              )}
+              {JOINT_NAMES.map((joint) => {
+                const limits = JOINT_LIMITS[joint];
+                const currentValue = localJointAngles[joint];
+                const displayValue = inputValues[joint] !== undefined && inputValues[joint] !== ''
+                  ? inputValues[joint]
+                  : currentValue.toFixed(1);
+
+                return (
+                  <div key={joint} className="space-y-2">
+                    <div className="flex justify-between items-center text-sm gap-2">
+                      <span className="font-medium w-8">{joint}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="text"
+                          value={displayValue}
+                          onChange={(e) => handleInputChange(joint, e.target.value)}
+                          onBlur={() => handleInputBlur(joint, true)}
+                          onKeyDown={(e) => handleInputKeyDown(joint, true, e)}
+                          className="w-20 h-7 px-2 text-xs font-mono text-right"
+                        />
+                        <span className="text-xs text-muted-foreground w-4">°</span>
+                      </div>
+                    </div>
+                    <Slider
+                      min={limits.min}
+                      max={limits.max}
+                      step={0.1}
+                      value={[currentValue]}
+                      onValueChange={(values) => handleJointChange(joint, values[0])}
+                      className="w-full"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Cartesian Pose Section (also in Advanced) */}
+            <div className="pt-4 border-t space-y-4">
+              <h3 className="text-sm font-semibold mb-3">Cartesian Pose</h3>
+              {CARTESIAN_AXES.map((axis) => {
+                const limits = CARTESIAN_LIMITS[axis];
+                const unit = getUnit(axis);
+                const step = ['X', 'Y', 'Z'].includes(axis) ? 1 : 0.1;
+                const currentValue = localCartesianPose[axis];
+                const displayValue = inputValues[axis] !== undefined && inputValues[axis] !== ''
+                  ? inputValues[axis]
+                  : currentValue.toFixed(1);
+                const loopDelta = localLoopDeltas[axis] || 0;
+                const showLoopControls = (loopIterations || 1) > 1;
+
+                return (
+                  <div key={axis} className="space-y-2">
+                    <div className="flex justify-between items-center text-sm gap-2">
+                      <span className="font-medium w-8">{axis}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="text"
+                          value={displayValue}
+                          onChange={(e) => handleInputChange(axis, e.target.value)}
+                          onBlur={() => handleInputBlur(axis, false)}
+                          onKeyDown={(e) => handleInputKeyDown(axis, false, e)}
+                          className="w-20 h-7 px-2 text-xs font-mono text-right"
+                        />
+                        <span className="text-xs text-muted-foreground w-8">{unit}</span>
+
+                        {/* Loop delta input (only show when looping is enabled) */}
+                        {showLoopControls && (
+                          <>
+                            <span className="text-xs text-muted-foreground ml-2">Δ/loop:</span>
+                            <Input
+                              type="number"
+                              value={loopDelta}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value);
+                                if (!isNaN(value)) {
+                                  handleLoopDeltaChange(axis, value);
+                                }
+                              }}
+                              className="w-16 h-7 px-2 text-xs font-mono text-right bg-green-900/20 border-green-500/50"
+                              title={`Add ${loopDelta}${unit} to ${axis} per loop iteration`}
+                              step={step}
+                            />
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <Slider
+                      min={limits.min}
+                      max={limits.max}
+                      step={step}
+                      value={[currentValue]}
+                      onValueChange={(values) => handleCartesianChange(axis, values[0])}
+                      className="w-full"
+                    />
+                  </div>
+                );
+              })}
+
+              {/* IK Status */}
+              <div className="flex items-center gap-2 pt-2">
+                {!ikError ? (
+                  <div className="flex items-center gap-2 text-green-500">
+                    <Check className="w-4 h-4" />
+                    <span className="text-xs">IK Valid (auto-computed)</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-yellow-500" title={ikError}>
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-xs">IK Warning: {ikError}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Tool State Section (also in Advanced) */}
+            <div className="pt-4 border-t space-y-4">
+              <h3 className="text-sm font-semibold">Tool & I/O</h3>
+
+              {/* Tool Selector */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Active Tool</label>
+                <Select
+                  value={localToolId || undefined}
+                  onValueChange={(value) => setLocalToolId(value)}
+                  disabled={toolsLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={toolsLoading ? "Loading tools..." : "Select a tool"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTools.map((tool) => (
+                      <SelectItem key={tool.id} value={tool.id}>
+                        {tool.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Gripper State Toggle - Only show if selected tool has gripper enabled */}
+              {localToolId && availableTools.find(t => t.id === localToolId)?.gripper_config?.enabled && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Gripper State</label>
+                  <ToggleGroup
+                    type="single"
+                    value={localGripperState || undefined}
+                    onValueChange={(value) => setLocalGripperState(value as 'open' | 'closed')}
+                    className="justify-start"
+                  >
+                    <ToggleGroupItem value="open" aria-label="Open gripper">
+                      Open
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="closed" aria-label="Close gripper">
+                      Closed
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+              )}
+
+              {/* Output Switches */}
+              <div className="space-y-3 pt-2">
+                <label className="text-sm font-medium">Digital Outputs</label>
+
+                {/* Output 1 */}
+                {(() => {
+                  const selectedTool = localToolId ? availableTools.find(t => t.id === localToolId) : null;
+                  const toolControlsOutput1 = selectedTool?.gripper_config?.enabled && selectedTool?.gripper_config?.io_pin === 1;
+
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="output1-adv" className="text-sm">Output 1</Label>
+                        {toolControlsOutput1 && (
+                          <span className="text-xs text-muted-foreground">(Controlled by {selectedTool?.name})</span>
+                        )}
+                      </div>
+                      <Switch
+                        id="output1-adv"
+                        checked={localOutput1 ?? false}
+                        onCheckedChange={(checked) => setLocalOutput1(checked)}
+                        disabled={toolControlsOutput1}
+                      />
+                    </div>
+                  );
+                })()}
+
+                {/* Output 2 */}
+                {(() => {
+                  const selectedTool = localToolId ? availableTools.find(t => t.id === localToolId) : null;
+                  const toolControlsOutput2 = selectedTool?.gripper_config?.enabled && selectedTool?.gripper_config?.io_pin === 2;
+
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="output2-adv" className="text-sm">Output 2</Label>
+                        {toolControlsOutput2 && (
+                          <span className="text-xs text-muted-foreground">(Controlled by {selectedTool?.name})</span>
+                        )}
+                      </div>
+                      <Switch
+                        id="output2-adv"
+                        checked={localOutput2 ?? false}
+                        onCheckedChange={(checked) => setLocalOutput2(checked)}
+                        disabled={toolControlsOutput2}
+                      />
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
 
         {/* Footer: Save/Cancel */}
         <div className="flex justify-end gap-2 mt-6 pt-4 border-t">

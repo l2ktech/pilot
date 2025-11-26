@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect, Suspense, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei';
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei';
 import Header from '../components/Header';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,8 +10,17 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Upload, Trash2, FileIcon, Plus } from 'lucide-react';
 import URDFLoader from 'urdf-loader';
-import { STLLoader } from 'three-stdlib';
+import { STLLoader, GLTFLoader } from 'three-stdlib';
 import * as THREE from 'three';
+
+// Helper to detect mesh file type
+const getMeshFileType = (filename: string): 'stl' | 'gltf' | 'glb' | null => {
+  const ext = filename.toLowerCase().split('.').pop();
+  if (ext === 'stl') return 'stl';
+  if (ext === 'gltf') return 'gltf';
+  if (ext === 'glb') return 'glb';
+  return null;
+};
 import { useRobotConfigStore } from '../lib/stores/robotConfigStore';
 import { useConfigStore } from '../lib/configStore';
 import { applyJointAnglesToUrdf } from '../lib/urdfHelpers';
@@ -165,13 +174,17 @@ function StaticURDFRobot({
   );
 }
 
-// STL Mesh Component - Positioned at J6 joint (L6 attachment point)
-function STLMesh({
+// Tool Mesh Component - Positioned at J6 joint (L6 attachment point)
+// Supports both STL geometry and GLTF scenes
+function ToolMeshPreview({
   stlGeometry,
+  gltfScene,
   robotRef,
   offset,
   stlGeometryOpen,
   stlGeometryClosed,
+  gltfSceneOpen,
+  gltfSceneClosed,
   displayState,
   color,
   transparency,
@@ -179,10 +192,13 @@ function STLMesh({
   roughness
 }: {
   stlGeometry: THREE.BufferGeometry | null;
+  gltfScene: THREE.Group | null;
   robotRef: any;
   offset: { x: number; y: number; z: number; rx: number; ry: number; rz: number };
   stlGeometryOpen?: THREE.BufferGeometry | null;
   stlGeometryClosed?: THREE.BufferGeometry | null;
+  gltfSceneOpen?: THREE.Group | null;
+  gltfSceneClosed?: THREE.Group | null;
   displayState?: 'open' | 'closed';
   color: string;
   transparency: number;
@@ -192,9 +208,11 @@ function STLMesh({
   const meshRef = useRef<THREE.Mesh>(null);
   const meshOpenRef = useRef<THREE.Mesh>(null);
   const meshClosedRef = useRef<THREE.Mesh>(null);
+  const gltfRef = useRef<THREE.Group>(null);
+  const gltfOpenRef = useRef<THREE.Group>(null);
+  const gltfClosedRef = useRef<THREE.Group>(null);
 
-
-  // Update STL position/rotation to match J6 joint every frame
+  // Update mesh position/rotation to match J6 joint every frame
   useFrame(() => {
     if (!robotRef) return;
 
@@ -209,26 +227,26 @@ function STLMesh({
     j6Joint.getWorldPosition(l6WorldPosition);
     j6Joint.getWorldQuaternion(l6WorldQuaternion);
 
-    // Helper function to update a mesh's transform
-    const updateMeshTransform = (meshRef: React.RefObject<THREE.Mesh>) => {
-      if (!meshRef.current) return;
+    // Helper function to update an object's transform (works for both Mesh and Group)
+    const updateObjectTransform = (obj: THREE.Object3D | null) => {
+      if (!obj) return;
 
       // Apply position offset in L6's local frame (rotates with J6)
       if (offset.x !== 0 || offset.y !== 0 || offset.z !== 0) {
         const localOffset = new THREE.Vector3(offset.x, offset.y, offset.z);
         const worldOffset = localOffset.applyQuaternion(l6WorldQuaternion);
-        meshRef.current.position.copy(l6WorldPosition).add(worldOffset);
+        obj.position.copy(l6WorldPosition).add(worldOffset);
       } else {
-        meshRef.current.position.copy(l6WorldPosition);
+        obj.position.copy(l6WorldPosition);
       }
 
       // Set base rotation from L6
-      meshRef.current.quaternion.copy(l6WorldQuaternion);
+      obj.quaternion.copy(l6WorldQuaternion);
 
       // Apply L6 visual origin rotation from URDF: rpy="0 0 -1.5708" (-90° Z)
       const visualOriginRotation = new THREE.Quaternion();
       visualOriginRotation.setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2, 'XYZ'));
-      meshRef.current.quaternion.multiply(visualOriginRotation);
+      obj.quaternion.multiply(visualOriginRotation);
 
       // Apply user rotation offset (degrees -> radians -> quaternion)
       if (offset.rx !== 0 || offset.ry !== 0 || offset.rz !== 0) {
@@ -240,26 +258,29 @@ function STLMesh({
         );
         const userRotationQuat = new THREE.Quaternion();
         userRotationQuat.setFromEuler(userRotationEuler);
-        meshRef.current.quaternion.multiply(userRotationQuat);
+        obj.quaternion.multiply(userRotationQuat);
       }
     };
 
-    // Update all active meshes
-    updateMeshTransform(meshRef);
-    updateMeshTransform(meshOpenRef);
-    updateMeshTransform(meshClosedRef);
+    // Update all active meshes/scenes
+    updateObjectTransform(meshRef.current);
+    updateObjectTransform(meshOpenRef.current);
+    updateObjectTransform(meshClosedRef.current);
+    updateObjectTransform(gltfRef.current);
+    updateObjectTransform(gltfOpenRef.current);
+    updateObjectTransform(gltfClosedRef.current);
   });
 
-  // Determine which geometries to show
-  const hasGripperGeometries = stlGeometryOpen || stlGeometryClosed;
-  const showMain = !hasGripperGeometries && stlGeometry;
+  // Determine which geometries/scenes to show
+  const hasGripperGeometries = !!(stlGeometryOpen || stlGeometryClosed || gltfSceneOpen || gltfSceneClosed);
+  const showMain = !hasGripperGeometries && !!(stlGeometry || gltfScene);
   const showOpen = hasGripperGeometries && displayState === 'open';
   const showClosed = hasGripperGeometries && displayState === 'closed';
 
   return (
     <>
-      {/* Main single STL (backward compatible) */}
-      {showMain && stlGeometry && (
+      {/* Main single STL */}
+      {showMain && stlGeometry && !gltfScene && (
         <mesh ref={meshRef} geometry={stlGeometry}>
           <meshStandardMaterial
             color={color}
@@ -272,8 +293,13 @@ function STLMesh({
         </mesh>
       )}
 
+      {/* Main GLTF scene (preserves per-mesh colors) */}
+      {showMain && gltfScene && (
+        <primitive ref={gltfRef} object={gltfScene} />
+      )}
+
       {/* Open state STL */}
-      {stlGeometryOpen && (
+      {stlGeometryOpen && !gltfSceneOpen && (
         <mesh ref={meshOpenRef} geometry={stlGeometryOpen} visible={showOpen}>
           <meshStandardMaterial
             color={color}
@@ -286,8 +312,13 @@ function STLMesh({
         </mesh>
       )}
 
+      {/* Open state GLTF */}
+      {gltfSceneOpen && (
+        <primitive ref={gltfOpenRef} object={gltfSceneOpen} visible={showOpen} />
+      )}
+
       {/* Closed state STL */}
-      {stlGeometryClosed && (
+      {stlGeometryClosed && !gltfSceneClosed && (
         <mesh ref={meshClosedRef} geometry={stlGeometryClosed} visible={showClosed}>
           <meshStandardMaterial
             color={color}
@@ -298,6 +329,11 @@ function STLMesh({
             side={THREE.DoubleSide}
           />
         </mesh>
+      )}
+
+      {/* Closed state GLTF */}
+      {gltfSceneClosed && (
+        <primitive ref={gltfClosedRef} object={gltfSceneClosed} visible={showClosed} />
       )}
     </>
   );
@@ -329,6 +365,7 @@ export default function ConfigurationPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [fileInfo, setFileInfo] = useState<{ name: string; size: string } | null>(null);
   const [stlGeometry, setStlGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [gltfScene, setGltfScene] = useState<THREE.Group | null>(null); // For GLB/GLTF files
   const [stlUnits, setStlUnits] = useState<'mm' | 'm'>('mm'); // Default to mm
   const [meshOffset, setMeshOffset] = useState({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }); // Manual offset adjustment (position + rotation)
   const [tcpOffset, setTcpOffset] = useState({ x: 0, y: -45.2, z: -62.8, rx: 90, ry: 180, rz: 0 }); // TCP offset (position in mm, rotation in degrees)
@@ -341,6 +378,8 @@ export default function ConfigurationPage() {
   const [stlFileClosed, setStlFileClosed] = useState<File | null>(null);
   const [stlGeometryOpen, setStlGeometryOpen] = useState<THREE.BufferGeometry | null>(null);
   const [stlGeometryClosed, setStlGeometryClosed] = useState<THREE.BufferGeometry | null>(null);
+  const [gltfSceneOpen, setGltfSceneOpen] = useState<THREE.Group | null>(null); // For GLB/GLTF gripper open state
+  const [gltfSceneClosed, setGltfSceneClosed] = useState<THREE.Group | null>(null); // For GLB/GLTF gripper closed state
   const [displayState, setDisplayState] = useState<'open' | 'closed'>('open');
 
   // UI state
@@ -416,20 +455,32 @@ export default function ConfigurationPage() {
         setGripperIoPin(tool.gripper_config.io_pin);
         setGripperOpenIsHigh(tool.gripper_config.open_is_high);
 
-        // Load open state STL if present
+        // Load open state mesh if present (STL, GLB, or GLTF)
         if (tool.gripper_config.mesh_file_open) {
           try {
             const url = `/urdf/meshes/${tool.gripper_config.mesh_file_open}`;
             const response = await fetch(url);
             if (response.ok) {
               const arrayBuffer = await response.arrayBuffer();
-              const loader = new STLLoader();
-              const geometry = loader.parse(arrayBuffer);
+              const fileType = getMeshFileType(tool.gripper_config.mesh_file_open);
               const units = tool.mesh_units || 'mm';
-              if (units === 'mm') {
-                geometry.scale(0.001, 0.001, 0.001);
+              const scale = units === 'mm' ? 0.001 : 1.0;
+
+              if (fileType === 'stl') {
+                const loader = new STLLoader();
+                const geometry = loader.parse(arrayBuffer);
+                geometry.scale(scale, scale, scale);
+                setStlGeometryOpen(geometry);
+                setGltfSceneOpen(null);
+              } else if (fileType === 'glb' || fileType === 'gltf') {
+                const loader = new GLTFLoader();
+                const gltf = await new Promise<any>((resolve, reject) => {
+                  loader.parse(arrayBuffer, '', resolve, reject);
+                });
+                gltf.scene.scale.set(scale, scale, scale);
+                setGltfSceneOpen(gltf.scene.clone());
+                setStlGeometryOpen(null);
               }
-              setStlGeometryOpen(geometry);
               setStlFileOpen(new File([arrayBuffer], tool.gripper_config.mesh_file_open));
             }
           } catch (err) {
@@ -437,20 +488,32 @@ export default function ConfigurationPage() {
           }
         }
 
-        // Load closed state STL if present
+        // Load closed state mesh if present (STL, GLB, or GLTF)
         if (tool.gripper_config.mesh_file_closed) {
           try {
             const url = `/urdf/meshes/${tool.gripper_config.mesh_file_closed}`;
             const response = await fetch(url);
             if (response.ok) {
               const arrayBuffer = await response.arrayBuffer();
-              const loader = new STLLoader();
-              const geometry = loader.parse(arrayBuffer);
+              const fileType = getMeshFileType(tool.gripper_config.mesh_file_closed);
               const units = tool.mesh_units || 'mm';
-              if (units === 'mm') {
-                geometry.scale(0.001, 0.001, 0.001);
+              const scale = units === 'mm' ? 0.001 : 1.0;
+
+              if (fileType === 'stl') {
+                const loader = new STLLoader();
+                const geometry = loader.parse(arrayBuffer);
+                geometry.scale(scale, scale, scale);
+                setStlGeometryClosed(geometry);
+                setGltfSceneClosed(null);
+              } else if (fileType === 'glb' || fileType === 'gltf') {
+                const loader = new GLTFLoader();
+                const gltf = await new Promise<any>((resolve, reject) => {
+                  loader.parse(arrayBuffer, '', resolve, reject);
+                });
+                gltf.scene.scale.set(scale, scale, scale);
+                setGltfSceneClosed(gltf.scene.clone());
+                setStlGeometryClosed(null);
               }
-              setStlGeometryClosed(geometry);
               setStlFileClosed(new File([arrayBuffer], tool.gripper_config.mesh_file_closed));
             }
           } catch (err) {
@@ -462,11 +525,13 @@ export default function ConfigurationPage() {
         setGripperEnabled(false);
         setStlGeometryOpen(null);
         setStlGeometryClosed(null);
+        setGltfSceneOpen(null);
+        setGltfSceneClosed(null);
         setStlFileOpen(null);
         setStlFileClosed(null);
       }
 
-      // Load STL file if tool has one
+      // Load mesh file if tool has one (STL, GLB, or GLTF)
       if (tool.mesh_file) {
         try {
           setIsLoading(true);
@@ -474,16 +539,26 @@ export default function ConfigurationPage() {
           const response = await fetch(url);
           if (response.ok) {
             const arrayBuffer = await response.arrayBuffer();
-            const loader = new STLLoader();
-            const geometry = loader.parse(arrayBuffer);
+            const fileType = getMeshFileType(tool.mesh_file);
+            const units = tool.mesh_units || 'mm';
+            const scale = units === 'mm' ? 0.001 : 1.0;
 
-            // Apply unit scaling only if mesh is in mm (convert to meters for Three.js)
-            const units = tool.mesh_units || 'mm'; // Default to mm for backward compatibility
-            if (units === 'mm') {
-              geometry.scale(0.001, 0.001, 0.001);
+            if (fileType === 'stl') {
+              const loader = new STLLoader();
+              const geometry = loader.parse(arrayBuffer);
+              geometry.scale(scale, scale, scale);
+              setStlGeometry(geometry);
+              setGltfScene(null);
+            } else if (fileType === 'glb' || fileType === 'gltf') {
+              const loader = new GLTFLoader();
+              const gltf = await new Promise<any>((resolve, reject) => {
+                loader.parse(arrayBuffer, '', resolve, reject);
+              });
+              gltf.scene.scale.set(scale, scale, scale);
+              setGltfScene(gltf.scene.clone());
+              setStlGeometry(null);
             }
 
-            setStlGeometry(geometry);
             setFileInfo({
               name: tool.mesh_file,
               size: `${(arrayBuffer.byteLength / 1024).toFixed(2)} KB`
@@ -504,6 +579,7 @@ export default function ConfigurationPage() {
         setUploadedFile(null);
         setFileInfo(null);
         setStlGeometry(null);
+        setGltfScene(null);
       }
     }
   };
@@ -519,6 +595,7 @@ export default function ConfigurationPage() {
     setUploadedFile(null);
     setFileInfo(null);
     setStlGeometry(null);
+    setGltfScene(null);
 
     // Clear gripper state
     setGripperEnabled(false);
@@ -528,6 +605,8 @@ export default function ConfigurationPage() {
     setStlFileClosed(null);
     setStlGeometryOpen(null);
     setStlGeometryClosed(null);
+    setGltfSceneOpen(null);
+    setGltfSceneClosed(null);
     setDisplayState('open');
   };
 
@@ -703,30 +782,45 @@ export default function ConfigurationPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Load STL file
-  const loadSTL = async (file: File) => {
+  // Load mesh file (STL, GLB, or GLTF)
+  const loadMesh = async (file: File) => {
     setIsLoading(true);
     setError(null);
 
     try {
       // Validate file type
-      if (!file.name.toLowerCase().endsWith('.stl')) {
-        throw new Error('Please upload a valid STL file');
+      const fileType = getMeshFileType(file.name);
+      if (!fileType) {
+        throw new Error('Please upload a valid mesh file (.stl, .glb, or .gltf)');
       }
 
       // Read file as ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
-
-      // Load STL
-      const loader = new STLLoader();
-      const geometry = loader.parse(arrayBuffer);
-
-      // Scale based on selected units (no normalization, just unit conversion)
-      // Note: We preserve the STL's original origin point instead of centering
       const scale = stlUnits === 'mm' ? 0.001 : 1.0; // mm->m or keep as-is
-      geometry.scale(scale, scale, scale);
 
-      setStlGeometry(geometry);
+      if (fileType === 'stl') {
+        // Load STL
+        const loader = new STLLoader();
+        const geometry = loader.parse(arrayBuffer);
+
+        // Scale based on selected units
+        geometry.scale(scale, scale, scale);
+
+        setStlGeometry(geometry);
+        setGltfScene(null); // Clear GLTF scene
+      } else {
+        // Load GLB/GLTF
+        const loader = new GLTFLoader();
+        const gltf = await new Promise<any>((resolve, reject) => {
+          loader.parse(arrayBuffer, '', resolve, reject);
+        });
+
+        // Apply scaling to entire scene
+        gltf.scene.scale.set(scale, scale, scale);
+
+        setGltfScene(gltf.scene.clone());
+        setStlGeometry(null); // Clear STL geometry
+      }
 
       // Update file info
       const sizeKB = (file.size / 1024).toFixed(2);
@@ -738,8 +832,8 @@ export default function ConfigurationPage() {
       setUploadedFile(file);
       setIsLoading(false);
     } catch (err) {
-      logger.error('Error loading STL', 'handleFileDrop', { error: err });
-      setError(err instanceof Error ? err.message : 'Failed to load STL file');
+      logger.error('Error loading mesh', 'loadMesh', { error: err });
+      setError(err instanceof Error ? err.message : 'Failed to load mesh file');
       setIsLoading(false);
     }
   };
@@ -748,7 +842,7 @@ export default function ConfigurationPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      loadSTL(file);
+      loadMesh(file);
     }
   };
 
@@ -769,7 +863,7 @@ export default function ConfigurationPage() {
 
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      loadSTL(file);
+      loadMesh(file);
     }
   };
 
@@ -784,56 +878,80 @@ export default function ConfigurationPage() {
     setError(null);
   };
 
-  // Load open state STL for gripper
-  const loadSTLOpen = async (file: File) => {
+  // Load open state mesh for gripper (STL, GLB, or GLTF)
+  const loadMeshOpen = async (file: File) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      if (!file.name.toLowerCase().endsWith('.stl')) {
-        throw new Error('Please upload a valid STL file');
+      const fileType = getMeshFileType(file.name);
+      if (!fileType) {
+        throw new Error('Please upload a valid mesh file (.stl, .glb, or .gltf)');
       }
 
       const arrayBuffer = await file.arrayBuffer();
-      const loader = new STLLoader();
-      const geometry = loader.parse(arrayBuffer);
-
       const scale = stlUnits === 'mm' ? 0.001 : 1.0;
-      geometry.scale(scale, scale, scale);
 
-      setStlGeometryOpen(geometry);
+      if (fileType === 'stl') {
+        const loader = new STLLoader();
+        const geometry = loader.parse(arrayBuffer);
+        geometry.scale(scale, scale, scale);
+        setStlGeometryOpen(geometry);
+        setGltfSceneOpen(null);
+      } else {
+        const loader = new GLTFLoader();
+        const gltf = await new Promise<any>((resolve, reject) => {
+          loader.parse(arrayBuffer, '', resolve, reject);
+        });
+        gltf.scene.scale.set(scale, scale, scale);
+        setGltfSceneOpen(gltf.scene.clone());
+        setStlGeometryOpen(null);
+      }
+
       setStlFileOpen(file);
       setIsLoading(false);
     } catch (err) {
-      logger.error('Error loading open STL', 'loadSTLOpen', { error: err });
-      setError(err instanceof Error ? err.message : 'Failed to load STL file');
+      logger.error('Error loading open mesh', 'loadMeshOpen', { error: err });
+      setError(err instanceof Error ? err.message : 'Failed to load mesh file');
       setIsLoading(false);
     }
   };
 
-  // Load closed state STL for gripper
-  const loadSTLClosed = async (file: File) => {
+  // Load closed state mesh for gripper (STL, GLB, or GLTF)
+  const loadMeshClosed = async (file: File) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      if (!file.name.toLowerCase().endsWith('.stl')) {
-        throw new Error('Please upload a valid STL file');
+      const fileType = getMeshFileType(file.name);
+      if (!fileType) {
+        throw new Error('Please upload a valid mesh file (.stl, .glb, or .gltf)');
       }
 
       const arrayBuffer = await file.arrayBuffer();
-      const loader = new STLLoader();
-      const geometry = loader.parse(arrayBuffer);
-
       const scale = stlUnits === 'mm' ? 0.001 : 1.0;
-      geometry.scale(scale, scale, scale);
 
-      setStlGeometryClosed(geometry);
+      if (fileType === 'stl') {
+        const loader = new STLLoader();
+        const geometry = loader.parse(arrayBuffer);
+        geometry.scale(scale, scale, scale);
+        setStlGeometryClosed(geometry);
+        setGltfSceneClosed(null);
+      } else {
+        const loader = new GLTFLoader();
+        const gltf = await new Promise<any>((resolve, reject) => {
+          loader.parse(arrayBuffer, '', resolve, reject);
+        });
+        gltf.scene.scale.set(scale, scale, scale);
+        setGltfSceneClosed(gltf.scene.clone());
+        setStlGeometryClosed(null);
+      }
+
       setStlFileClosed(file);
       setIsLoading(false);
     } catch (err) {
-      logger.error('Error loading closed STL', 'loadSTLClosed', { error: err });
-      setError(err instanceof Error ? err.message : 'Failed to load STL file');
+      logger.error('Error loading closed mesh', 'loadMeshClosed', { error: err });
+      setError(err instanceof Error ? err.message : 'Failed to load mesh file');
       setIsLoading(false);
     }
   };
@@ -842,7 +960,7 @@ export default function ConfigurationPage() {
   const handleFileChangeOpen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      loadSTLOpen(file);
+      loadMeshOpen(file);
     }
   };
 
@@ -850,7 +968,7 @@ export default function ConfigurationPage() {
   const handleFileChangeClosed = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      loadSTLClosed(file);
+      loadMeshClosed(file);
     }
   };
 
@@ -875,7 +993,7 @@ export default function ConfigurationPage() {
   // Save configuration to URDF
   const handleSaveToURDF = async () => {
     if (!uploadedFile) {
-      setSaveError('No STL file uploaded');
+      setSaveError('No mesh file uploaded');
       return;
     }
 
@@ -944,7 +1062,7 @@ export default function ConfigurationPage() {
   // Re-scale STL when units change
   useEffect(() => {
     if (stlGeometry && uploadedFile) {
-      loadSTL(uploadedFile);
+      loadMesh(uploadedFile);
     }
   }, [stlUnits]);
 
@@ -1035,7 +1153,7 @@ export default function ConfigurationPage() {
               >
                 <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
                 <p className="text-xs font-medium mb-0.5">
-                  {isDragging ? 'Drop STL file here' : 'Upload STL Mesh'}
+                  {isDragging ? 'Drop mesh file here' : 'Upload Mesh'}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
                   Click or drag & drop
@@ -1043,7 +1161,7 @@ export default function ConfigurationPage() {
                 <input
                   id="file-input"
                   type="file"
-                  accept=".stl"
+                  accept=".stl,.glb,.gltf"
                   className="hidden"
                   onChange={handleFileChange}
                 />
@@ -1053,7 +1171,7 @@ export default function ConfigurationPage() {
             {/* Dual STL Upload for Gripper */}
             {gripperEnabled && (selectedToolId || isCreatingNew) && (
               <div className="space-y-2">
-                <label className="text-xs font-medium block">Gripper State STLs</label>
+                <label className="text-xs font-medium block">Gripper State Meshes</label>
                 <div className="grid grid-cols-2 gap-2">
                   {/* Open State Upload */}
                   <div>
@@ -1064,11 +1182,11 @@ export default function ConfigurationPage() {
                         onClick={() => document.getElementById('file-input-open')?.click()}
                       >
                         <Upload className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                        <p className="text-[9px] text-muted-foreground">Upload STL</p>
+                        <p className="text-[9px] text-muted-foreground">Upload Mesh</p>
                         <input
                           id="file-input-open"
                           type="file"
-                          accept=".stl"
+                          accept=".stl,.glb,.gltf"
                           className="hidden"
                           onChange={handleFileChangeOpen}
                         />
@@ -1098,11 +1216,11 @@ export default function ConfigurationPage() {
                         onClick={() => document.getElementById('file-input-closed')?.click()}
                       >
                         <Upload className="w-5 h-5 mx-auto mb-1 text-muted-foreground" />
-                        <p className="text-[9px] text-muted-foreground">Upload STL</p>
+                        <p className="text-[9px] text-muted-foreground">Upload Mesh</p>
                         <input
                           id="file-input-closed"
                           type="file"
-                          accept=".stl"
+                          accept=".stl,.glb,.gltf"
                           className="hidden"
                           onChange={handleFileChangeClosed}
                         />
@@ -1413,6 +1531,19 @@ export default function ConfigurationPage() {
                   {hasUnsavedChanges && <span className="mr-1">●</span>}
                   {isSaving ? 'Saving...' : isCreatingNew ? 'Create' : 'Save'}
                 </Button>
+
+                {/* Delete Button (only for existing tools, not when creating new) */}
+                {selectedToolId && !isCreatingNew && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleDeleteTool(tools.find(t => t.id === selectedToolId)!)}
+                    disabled={selectedToolId === activeToolId}
+                    className="w-full h-8"
+                    size="sm"
+                  >
+                    Delete Tool
+                  </Button>
+                )}
               </div>
             </Card>
           )}
@@ -1553,9 +1684,13 @@ export default function ConfigurationPage() {
             <h3 className="text-sm font-semibold">Tool Preview</h3>
           </div>
 
-          <Canvas camera={{ position: [0.5, 0.4, 0.8], fov: 50 }}>
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[10, 10, 5]} intensity={1} />
+          <Canvas
+              camera={{ position: [0.5, 0.4, 0.8], fov: 50 }}
+              gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
+            >
+              <Environment preset="studio" />
+              <ambientLight intensity={0.3} />
+              <directionalLight position={[10, 10, 5]} intensity={0.5} />
 
             <Suspense fallback={null}>
               {/* Static URDF Robot - color based on view selection */}
@@ -1568,12 +1703,15 @@ export default function ConfigurationPage() {
               />
 
               {/* Uploaded STL Mesh - positioned at L6 attachment point, color and transparency match robot */}
-              <STLMesh
+              <ToolMeshPreview
                 stlGeometry={stlGeometry}
+                gltfScene={gltfScene}
                 robotRef={robot}
                 offset={meshOffset}
                 stlGeometryOpen={stlGeometryOpen}
                 stlGeometryClosed={stlGeometryClosed}
+                gltfSceneOpen={gltfSceneOpen}
+                gltfSceneClosed={gltfSceneClosed}
                 displayState={displayState}
                 color={robotView === 'commander' ? commanderRobotColor : hardwareRobotColor}
                 transparency={robotView === 'commander' ? commanderRobotTransparency : hardwareRobotTransparency}
@@ -1628,7 +1766,7 @@ export default function ConfigurationPage() {
               </div>
 
               {/* Gripper state toggle (only shown if gripper geometries exist) */}
-              {(stlGeometryOpen || stlGeometryClosed) && (
+              {(stlGeometryOpen || stlGeometryClosed || gltfSceneOpen || gltfSceneClosed) && (
                 <>
                   <div className="w-px h-6 bg-muted-foreground/30" />
                   <div className="flex items-center gap-2">

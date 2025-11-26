@@ -77,7 +77,7 @@ websocket_handler = get_websocket_handler()
 websocket_handler.set_websocket_manager(manager)
 
 
-# UDP Log Receiver Task
+# UDP Log Receiver Task - receives logs from commander via UDP and broadcasts to WebSocket clients
 async def udp_log_receiver():
     """
     Background task to receive log messages from headless_commander via UDP

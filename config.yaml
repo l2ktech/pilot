@@ -54,7 +54,7 @@ server:
   log_forward_port: 5003
   loop_interval: 0.01
 ui:
-  active_tool: standard_90deg_tool
+  active_tool: duck
   cartesian_position_step_mm: 1
   commander_robot:
     color: '#ffffff'
@@ -125,13 +125,13 @@ ui:
     name: StraightDown
   show_safety_warnings: false
   step_angle: 1
-  tcp_offset:
-    rx: -90
-    ry: 90
-    rz: 90
-    x: 0
-    y: -50
-    z: 0
+  tcp_offset: &id001
+    rx: 0.0
+    ry: 90.0
+    rz: 0.0
+    x: 0.0
+    y: -50.0
+    z: 0.0
   tools:
   - description: No tool attached - TCP at J6 flange tip
     id: default_j6_tip
@@ -151,31 +151,6 @@ ui:
       rz: 0
       x: 0
       y: 0
-      z: 0
-  - description: ''
-    gripper_config:
-      enabled: true
-      io_pin: 1
-      mesh_file_closed: null
-      mesh_file_open: L6.STL
-      open_is_high: true
-    id: standard_90deg_tool
-    mesh_file: L6.STL
-    mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: 0
-      y: 0
-      z: 0.061
-    mesh_units: m
-    name: Standard 90deg tool
-    tcp_offset:
-      rx: -90
-      ry: 90
-      rz: 90
-      x: 0
-      y: -50
       z: 0
   - description: ''
     id: custom_flange
@@ -216,24 +191,24 @@ ui:
       y: 0
       z: 0
   - description: ''
+    gripper_config:
+      enabled: true
+      io_pin: 1
+      mesh_file_closed: Standard90_close.glb
+      mesh_file_open: Standard90_open.glb
+      open_is_high: true
     id: duck
-    mesh_file: RubberDuck.stl
+    mesh_file: Standard90_open.glb
     mesh_offset:
-      rx: 0
-      ry: 180
-      rz: 90
-      x: -0.033
-      y: 0.042
-      z: -0.034
+      rx: 0.0
+      ry: 0.0
+      rz: 90.0
+      x: 0.0
+      y: 0.0
+      z: 0.027
     mesh_units: mm
-    name: Duck
-    tcp_offset:
-      rx: 0
-      ry: 0
-      rz: 0
-      x: -8
-      y: -39.4
-      z: -92.8
+    name: Standard90
+    tcp_offset: *id001
   - description: ''
     gripper_config:
       enabled: true

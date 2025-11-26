@@ -17,7 +17,7 @@ import { useInputStore } from './lib/stores/inputStore';
 import { useRobotConfigStore } from './lib/stores/robotConfigStore';
 import { useHardwareStore } from './lib/stores/hardwareStore';
 import { useKinematicsStore } from './lib/stores/kinematicsStore';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -95,6 +95,7 @@ export default function Home() {
   const setMotionMode = useTimelineStore((state) => state.setMotionMode);
   const speed = useCommandStore((state) => state.speed);
   const setSpeed = useCommandStore((state) => state.setSpeed);
+  const accel = useCommandStore((state) => state.accel);
   const setAccel = useCommandStore((state) => state.setAccel);
   const setStepAngle = useInputStore((state) => state.setStepAngle);
   const setCartesianPositionStep = useInputStore((state) => state.setCartesianPositionStep);
@@ -403,22 +404,43 @@ export default function Home() {
 
         {/* Right Column: Control Panels - Full height */}
         <div className="w-[300px] flex-shrink-0 flex flex-col gap-4">
-          {/* Mode Toggle */}
-          <div className="bg-card rounded-lg border p-3 flex items-center gap-3">
-            <span className="text-sm font-semibold text-muted-foreground">Motion Mode:</span>
-            <ToggleGroup type="single" value={motionMode} onValueChange={handleModeChange}>
-              <ToggleGroupItem value="joint" className="px-4">
-                Joint Space
-              </ToggleGroupItem>
-              <ToggleGroupItem value="cartesian" className="px-4">
-                Cartesian Space
-              </ToggleGroupItem>
-            </ToggleGroup>
+          {/* Control Sliders with Tabs */}
+          <div className="bg-card rounded-lg border p-3">
+            <Tabs value={motionMode} onValueChange={(value) => handleModeChange(value as 'joint' | 'cartesian')}>
+              <TabsList className="w-full h-8">
+                <TabsTrigger value="joint" className="flex-1 h-7 text-xs">
+                  Joints
+                </TabsTrigger>
+                <TabsTrigger value="cartesian" className="flex-1 h-7 text-xs">
+                  Pose
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="joint" className="mt-3">
+                <CompactJointSliders />
+              </TabsContent>
+              <TabsContent value="cartesian" className="mt-3">
+                <CartesianSliders />
+              </TabsContent>
+            </Tabs>
           </div>
 
           {/* Tool Selector */}
           <div className="bg-card rounded-lg border p-3">
-            <Label className="text-sm font-medium mb-2 block">Active Tool</Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm font-medium">Active Tool</Label>
+              {activeTool?.gripper_config?.enabled && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {commandedGripperState === 'open' ? 'Open' : 'Closed'}
+                  </span>
+                  <Switch
+                    checked={commandedGripperState === 'closed'}
+                    onCheckedChange={(checked) => setCommandedGripperState(checked ? 'closed' : 'open')}
+                    className="scale-90"
+                  />
+                </div>
+              )}
+            </div>
             <Select value={commanderTool?.id || ""} onValueChange={handleToolChange}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select tool..." />
@@ -431,19 +453,6 @@ export default function Home() {
                 ))}
               </SelectContent>
             </Select>
-
-            {/* Gripper State Toggle */}
-            {activeTool?.gripper_config?.enabled && (
-              <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <Label className="text-sm">
-                  Gripper: {commandedGripperState === 'open' ? 'Open' : 'Closed'}
-                </Label>
-                <Switch
-                  checked={commandedGripperState === 'closed'}
-                  onCheckedChange={(checked) => setCommandedGripperState(checked ? 'closed' : 'open')}
-                />
-              </div>
-            )}
           </div>
 
           {/* Live Control Switch */}
@@ -463,32 +472,35 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Control Sliders - Auto height */}
+          {/* Speed & Accel Control */}
           <div className="flex-shrink-0">
-            {motionMode === 'joint' ? (
-              <CompactJointSliders />
-            ) : (
-              <div className="bg-card rounded-lg border p-4">
-                <h2 className="text-sm font-semibold mb-4">Cartesian Control</h2>
-                <CartesianSliders />
+            <div className="bg-card rounded-lg border p-3 space-y-2">
+              <div>
+                <Label className="text-xs font-medium mb-1 block">
+                  Speed: {speed}%
+                </Label>
+                <Slider
+                  value={[speed]}
+                  onValueChange={(value) => setSpeed(value[0])}
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="w-full"
+                />
               </div>
-            )}
-          </div>
-
-          {/* Speed Control */}
-          <div className="flex-shrink-0">
-            <div className="bg-card rounded-lg border p-3">
-              <Label className="text-xs font-medium mb-2 block">
-                Speed: {speed}%
-              </Label>
-              <Slider
-                value={[speed]}
-                onValueChange={(value) => setSpeed(value[0])}
-                min={0}
-                max={100}
-                step={1}
-                className="w-full"
-              />
+              <div>
+                <Label className="text-xs font-medium mb-1 block">
+                  Accel: {accel}%
+                </Label>
+                <Slider
+                  value={[accel]}
+                  onValueChange={(value) => setAccel(value[0])}
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="w-full"
+                />
+              </div>
             </div>
           </div>
 

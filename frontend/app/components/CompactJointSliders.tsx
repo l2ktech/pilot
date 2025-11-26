@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
@@ -64,23 +63,7 @@ export default function CompactJointSliders() {
   };
 
   return (
-    <Card className="p-3">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Joint Control</h2>
-        {liveControlEnabled && (
-          <span className="text-[10px] bg-yellow-500/20 text-yellow-500 px-2 py-1 rounded font-semibold">
-            ⚡ LIVE MODE
-          </span>
-        )}
-        {teachModeEnabled && (
-          <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-1 rounded font-semibold">
-            🔗 FOLLOWING
-          </span>
-        )}
-      </div>
-
-      {/* Joint Sliders - Compact */}
-      <div className="space-y-2">
+    <div className="space-y-2">
         {JOINT_NAMES.map((joint) => {
           const limits = JOINT_LIMITS[joint];
           const inputValue = inputJointAngles[joint];
@@ -100,7 +83,7 @@ export default function CompactJointSliders() {
             : inputValue.toFixed(1);
 
           return (
-            <div key={joint} className="space-y-1 pb-2 border-b last:border-b-0">
+            <div key={joint} className="space-y-1 pb-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">
                   {joint}
@@ -146,23 +129,19 @@ export default function CompactJointSliders() {
                 >
                   <ChevronRight className="h-3 w-3" />
                 </Button>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="text"
-                    value={displayValue}
-                    onChange={(e) => handleInputChange(joint, e.target.value)}
-                    onBlur={() => handleInputBlur(joint)}
-                    onKeyDown={(e) => handleInputKeyDown(joint, e)}
-                    disabled={teachModeEnabled}
-                    className={`w-12 h-6 px-1 text-xs font-mono text-right ${teachModeEnabled ? 'opacity-50' : ''}`}
-                  />
-                  <span className="text-xs text-muted-foreground">°</span>
-                </div>
+                <Input
+                  type="text"
+                  value={displayValue}
+                  onChange={(e) => handleInputChange(joint, e.target.value)}
+                  onBlur={() => handleInputBlur(joint)}
+                  onKeyDown={(e) => handleInputKeyDown(joint, e)}
+                  disabled={teachModeEnabled}
+                  className={`w-14 h-6 px-1 text-xs font-mono text-right ${teachModeEnabled ? 'opacity-50' : ''}`}
+                />
               </div>
             </div>
           );
         })}
-      </div>
-    </Card>
+    </div>
   );
 }

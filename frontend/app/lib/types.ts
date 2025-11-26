@@ -87,6 +87,8 @@ export interface Keyframe {
   toolId?: string; // Tool active at this keyframe
   gripperState?: 'open' | 'closed'; // Gripper state at this keyframe (if tool has gripper)
   loopDeltas?: Partial<CartesianPose>; // Per-axis increments per loop iteration (e.g., { Z: 10 } adds 10mm to Z each loop)
+  output_1?: boolean; // Digital output 1 state (may be auto-derived from gripper if tool controls it)
+  output_2?: boolean; // Digital output 2 state (may be auto-derived from gripper if tool controls it)
 }
 
 // Timeline = collection of keyframes (robot poses over time)

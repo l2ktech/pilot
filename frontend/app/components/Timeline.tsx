@@ -15,7 +15,7 @@ import { threeJsToRobot } from '@/app/lib/coordinateTransform';
 import { applyJointAnglesToUrdf } from '@/app/lib/urdfHelpers';
 import KeyframeEditDialog from './KeyframeEditDialog';
 import { logger } from '@/app/lib/logger';
-import type { Tool } from '@/app/lib/types';
+import type { Tool, CartesianPose, JointAngles } from '@/app/lib/types';
 import { getToolForSegment } from '@/app/lib/toolHelpers';
 
 // Add CSS for outline nodes and timeline rows
@@ -353,6 +353,10 @@ export default function Timeline({ availableTools }: TimelineProps) {
           rzChanged: true,
           toolChanged: true,
           gripperChanged: true,
+          output1Changed: kf.output_1 !== undefined,
+          output2Changed: kf.output_2 !== undefined,
+          output1Value: kf.output_1,
+          output2Value: kf.output_2,
         };
       }
 
@@ -379,6 +383,8 @@ export default function Timeline({ availableTools }: TimelineProps) {
 
       const toolChanged = kf.toolId !== prev.toolId;
       const gripperChanged = kf.gripperState !== prev.gripperState;
+      const output1Changed = kf.output_1 !== prev.output_1;
+      const output2Changed = kf.output_2 !== prev.output_2;
 
       return {
         keyframeId: kf.id,
@@ -392,6 +398,10 @@ export default function Timeline({ availableTools }: TimelineProps) {
         rzChanged,
         toolChanged,
         gripperChanged,
+        output1Changed,
+        output2Changed,
+        output1Value: kf.output_1,
+        output2Value: kf.output_2,
       };
     });
   };
@@ -607,6 +617,52 @@ export default function Timeline({ availableTools }: TimelineProps) {
       },
     };
 
+    // Dynamic output styles based on value - bright green for HIGH, dark red for LOW
+    const getOutputStyle = (isHigh: boolean) => ({
+      fillColor: isHigh ? '#00ff00' : '#8b0000',
+      strokeColor: isHigh ? '#00cc00' : '#660000',
+      shape: 'circle',
+      width: 4,
+      height: 4,
+      strokeThickness: 1,
+    });
+
+    const output1Row = {
+      title: 'Output 1',
+      keyframes: changes
+        .filter((c) => c.output1Changed)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: getOutputStyle(c.output1Value === true),
+          group: 'output1-row-group',
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
+    };
+
+    const output2Row = {
+      title: 'Output 2',
+      keyframes: changes
+        .filter((c) => c.output2Changed)
+        .map((c) => ({
+          val: c.time * 1000,
+          keyframeId: c.keyframeId,
+          draggable: false,
+          style: getOutputStyle(c.output2Value === true),
+          group: 'output2-row-group',
+        })),
+      keyframesDraggable: false,
+      hidden: false,
+      style: {
+        groupsStyle: subRowGroupsStyle,
+      },
+    };
+
     return [
       masterRow,
       xRow,
@@ -617,6 +673,8 @@ export default function Timeline({ availableTools }: TimelineProps) {
       rzRow,
       toolRow,
       gripperRow,
+      output1Row,
+      output2Row,
     ];
   };
 
@@ -864,6 +922,121 @@ export default function Timeline({ availableTools }: TimelineProps) {
           const text = await file.text();
           const timeline = JSON.parse(text);
           loadTimeline(timeline);
+
+          // Pre-calculate trajectories for all cartesian segments after import
+          // Use setTimeout to ensure loadTimeline has updated the store
+          setTimeout(async () => {
+            if (!computationRobotRef) {
+              logger.warn('Cannot pre-calculate trajectories: computation robot not loaded', 'Timeline');
+              return;
+            }
+
+            const loadedKeyframes = timeline.keyframes || [];
+            const sortedKeyframes = [...loadedKeyframes].sort((a: any, b: any) => a.time - b.time);
+            const loopIterations = timeline.loopIterations || 1;
+
+            for (let i = 0; i < sortedKeyframes.length - 1; i++) {
+              const prevKeyframe = sortedKeyframes[i];
+              const currKeyframe = sortedKeyframes[i + 1];
+
+              // Only process cartesian segments with valid poses
+              if (currKeyframe.motionType !== 'cartesian') continue;
+              if (!prevKeyframe.cartesianPose || !currKeyframe.cartesianPose) continue;
+
+              const duration = currKeyframe.time - prevKeyframe.time;
+              const segmentTool = getToolForSegment(prevKeyframe, availableTools, computationTool);
+
+              // Pre-calculate base trajectory
+              const result = await preCalculateCartesianTrajectory(
+                prevKeyframe.cartesianPose,
+                currKeyframe.cartesianPose,
+                prevKeyframe.jointAngles,
+                duration,
+                computationRobotRef,
+                segmentTool,
+                ikAxisMask
+              );
+
+              if (result.waypointPoses && result.waypointJoints && result.ikValid) {
+                const baseCacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
+
+                const dependencyData = JSON.stringify({
+                  tcpOffset: tcpOffset,
+                  ikAxisMask: ikAxisMask,
+                  startPose: prevKeyframe.cartesianPose,
+                  endPose: currKeyframe.cartesianPose,
+                  duration: duration
+                });
+
+                // Cache base trajectory
+                setCachedTrajectory(baseCacheKey, {
+                  waypointPoses: result.waypointPoses,
+                  waypointJoints: result.waypointJoints,
+                  ikValid: result.ikValid,
+                  dependencyHash: dependencyData,
+                  computedAt: Date.now()
+                });
+
+                logger.debug(`Cached imported trajectory for ${baseCacheKey}: ${result.waypointPoses.length} waypoints`, 'Timeline');
+
+                // Pre-calculate loop iterations if applicable
+                if (loopIterations > 1 && (prevKeyframe.loopDeltas || currKeyframe.loopDeltas)) {
+                  for (let loop = 1; loop < loopIterations; loop++) {
+                    const loopCacheKey = `${baseCacheKey}_loop${loop}`;
+                    const loopAdjustedPoses: CartesianPose[] = [];
+                    const loopAdjustedJoints: JointAngles[] = [];
+                    const loopIkValid: boolean[] = [];
+
+                    for (let j = 0; j < result.waypointPoses.length; j++) {
+                      const basePose = result.waypointPoses[j];
+                      const t = j / (result.waypointPoses.length - 1);
+
+                      const startDeltas = prevKeyframe.loopDeltas || {};
+                      const endDeltas = currKeyframe.loopDeltas || {};
+
+                      const adjustedPose: CartesianPose = {
+                        X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
+                        Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
+                        Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
+                        RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
+                        RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
+                        RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
+                      };
+
+                      loopAdjustedPoses.push(adjustedPose);
+
+                      const seed = j === 0 ? result.waypointJoints[0] : loopAdjustedJoints[j - 1];
+                      const ikResult = inverseKinematicsDetailed(
+                        adjustedPose,
+                        seed,
+                        computationRobotRef,
+                        segmentTool,
+                        ikAxisMask
+                      );
+
+                      if (ikResult.success && ikResult.jointAngles) {
+                        loopAdjustedJoints.push(ikResult.jointAngles);
+                        loopIkValid.push(true);
+                      } else {
+                        loopAdjustedJoints.push(seed);
+                        loopIkValid.push(false);
+                      }
+                    }
+
+                    setCachedTrajectory(loopCacheKey, {
+                      waypointPoses: loopAdjustedPoses,
+                      waypointJoints: loopAdjustedJoints,
+                      ikValid: loopIkValid,
+                      dependencyHash: dependencyData,
+                      computedAt: Date.now()
+                    });
+                  }
+                }
+              }
+            }
+
+            logger.info('Pre-calculated trajectories for imported timeline', 'Timeline');
+          }, 0);
         }
       };
       input.click();
@@ -876,6 +1049,201 @@ export default function Timeline({ availableTools }: TimelineProps) {
     if (!selectedKeyframe) return;
     setEditingKeyframeId(selectedKeyframe.id);
     setEditDialogOpen(true);
+  };
+
+  // Re-calculate trajectories for cartesian segments affected by a keyframe edit
+  const handleKeyframeSave = async (editedKeyframeId: string) => {
+    if (!computationRobotRef) {
+      logger.warn('Cannot re-calculate trajectories: computation robot not loaded', 'Timeline');
+      return;
+    }
+
+    // Get fresh keyframes from store (after the update)
+    const currentKeyframes = useTimelineStore.getState().timeline.keyframes;
+    const sortedKeyframes = [...currentKeyframes].sort((a, b) => a.time - b.time);
+    const editedIndex = sortedKeyframes.findIndex(kf => kf.id === editedKeyframeId);
+
+    if (editedIndex === -1) return;
+
+    const loopIterations = useTimelineStore.getState().timeline.loopIterations || 1;
+
+    // Check segment BEFORE edited keyframe (if edited keyframe is cartesian endpoint)
+    if (editedIndex > 0) {
+      const prevKeyframe = sortedKeyframes[editedIndex - 1];
+      const currKeyframe = sortedKeyframes[editedIndex];
+
+      if (currKeyframe.motionType === 'cartesian' && prevKeyframe.cartesianPose && currKeyframe.cartesianPose) {
+        const duration = currKeyframe.time - prevKeyframe.time;
+        const segmentTool = getToolForSegment(prevKeyframe, availableTools, computationTool);
+
+        const result = await preCalculateCartesianTrajectory(
+          prevKeyframe.cartesianPose,
+          currKeyframe.cartesianPose,
+          prevKeyframe.jointAngles,
+          duration,
+          computationRobotRef,
+          segmentTool,
+          ikAxisMask
+        );
+
+        if (result.waypointPoses && result.waypointJoints && result.ikValid) {
+          const baseCacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
+          const dependencyData = JSON.stringify({
+            tcpOffset: tcpOffset,
+            ikAxisMask: ikAxisMask,
+            startPose: prevKeyframe.cartesianPose,
+            endPose: currKeyframe.cartesianPose,
+            duration: duration
+          });
+
+          setCachedTrajectory(baseCacheKey, {
+            waypointPoses: result.waypointPoses,
+            waypointJoints: result.waypointJoints,
+            ikValid: result.ikValid,
+            dependencyHash: dependencyData,
+            computedAt: Date.now()
+          });
+
+          logger.debug(`Re-cached trajectory for ${baseCacheKey} after edit`, 'Timeline');
+
+          // Handle loop iterations
+          if (loopIterations > 1 && (prevKeyframe.loopDeltas || currKeyframe.loopDeltas)) {
+            for (let loop = 1; loop < loopIterations; loop++) {
+              const loopCacheKey = `${baseCacheKey}_loop${loop}`;
+              const loopAdjustedPoses: CartesianPose[] = [];
+              const loopAdjustedJoints: JointAngles[] = [];
+              const loopIkValid: boolean[] = [];
+
+              for (let j = 0; j < result.waypointPoses.length; j++) {
+                const basePose = result.waypointPoses[j];
+                const t = j / (result.waypointPoses.length - 1);
+                const startDeltas = prevKeyframe.loopDeltas || {};
+                const endDeltas = currKeyframe.loopDeltas || {};
+
+                const adjustedPose: CartesianPose = {
+                  X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
+                  Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
+                  Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
+                  RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
+                  RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
+                  RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
+                };
+
+                loopAdjustedPoses.push(adjustedPose);
+
+                const seed = j === 0 ? result.waypointJoints[0] : loopAdjustedJoints[j - 1];
+                const ikResult = inverseKinematicsDetailed(adjustedPose, seed, computationRobotRef, segmentTool, ikAxisMask);
+
+                if (ikResult.success && ikResult.jointAngles) {
+                  loopAdjustedJoints.push(ikResult.jointAngles);
+                  loopIkValid.push(true);
+                } else {
+                  loopAdjustedJoints.push(seed);
+                  loopIkValid.push(false);
+                }
+              }
+
+              setCachedTrajectory(loopCacheKey, {
+                waypointPoses: loopAdjustedPoses,
+                waypointJoints: loopAdjustedJoints,
+                ikValid: loopIkValid,
+                dependencyHash: dependencyData,
+                computedAt: Date.now()
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Check segment AFTER edited keyframe (if next keyframe is cartesian endpoint)
+    if (editedIndex < sortedKeyframes.length - 1) {
+      const currKeyframe = sortedKeyframes[editedIndex];
+      const nextKeyframe = sortedKeyframes[editedIndex + 1];
+
+      if (nextKeyframe.motionType === 'cartesian' && currKeyframe.cartesianPose && nextKeyframe.cartesianPose) {
+        const duration = nextKeyframe.time - currKeyframe.time;
+        const segmentTool = getToolForSegment(currKeyframe, availableTools, computationTool);
+
+        const result = await preCalculateCartesianTrajectory(
+          currKeyframe.cartesianPose,
+          nextKeyframe.cartesianPose,
+          currKeyframe.jointAngles,
+          duration,
+          computationRobotRef,
+          segmentTool,
+          ikAxisMask
+        );
+
+        if (result.waypointPoses && result.waypointJoints && result.ikValid) {
+          const baseCacheKey = `${currKeyframe.id}_${nextKeyframe.id}`;
+          const dependencyData = JSON.stringify({
+            tcpOffset: tcpOffset,
+            ikAxisMask: ikAxisMask,
+            startPose: currKeyframe.cartesianPose,
+            endPose: nextKeyframe.cartesianPose,
+            duration: duration
+          });
+
+          setCachedTrajectory(baseCacheKey, {
+            waypointPoses: result.waypointPoses,
+            waypointJoints: result.waypointJoints,
+            ikValid: result.ikValid,
+            dependencyHash: dependencyData,
+            computedAt: Date.now()
+          });
+
+          logger.debug(`Re-cached trajectory for ${baseCacheKey} after edit`, 'Timeline');
+
+          // Handle loop iterations
+          if (loopIterations > 1 && (currKeyframe.loopDeltas || nextKeyframe.loopDeltas)) {
+            for (let loop = 1; loop < loopIterations; loop++) {
+              const loopCacheKey = `${baseCacheKey}_loop${loop}`;
+              const loopAdjustedPoses: CartesianPose[] = [];
+              const loopAdjustedJoints: JointAngles[] = [];
+              const loopIkValid: boolean[] = [];
+
+              for (let j = 0; j < result.waypointPoses.length; j++) {
+                const basePose = result.waypointPoses[j];
+                const t = j / (result.waypointPoses.length - 1);
+                const startDeltas = currKeyframe.loopDeltas || {};
+                const endDeltas = nextKeyframe.loopDeltas || {};
+
+                const adjustedPose: CartesianPose = {
+                  X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
+                  Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
+                  Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
+                  RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
+                  RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
+                  RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
+                };
+
+                loopAdjustedPoses.push(adjustedPose);
+
+                const seed = j === 0 ? result.waypointJoints[0] : loopAdjustedJoints[j - 1];
+                const ikResult = inverseKinematicsDetailed(adjustedPose, seed, computationRobotRef, segmentTool, ikAxisMask);
+
+                if (ikResult.success && ikResult.jointAngles) {
+                  loopAdjustedJoints.push(ikResult.jointAngles);
+                  loopIkValid.push(true);
+                } else {
+                  loopAdjustedJoints.push(seed);
+                  loopIkValid.push(false);
+                }
+              }
+
+              setCachedTrajectory(loopCacheKey, {
+                waypointPoses: loopAdjustedPoses,
+                waypointJoints: loopAdjustedJoints,
+                ikValid: loopIkValid,
+                dependencyHash: dependencyData,
+                computedAt: Date.now()
+              });
+            }
+          }
+        }
+      }
+    }
   };
 
   const handleDuplicateKeyframe = () => {
@@ -1372,6 +1740,7 @@ export default function Timeline({ availableTools }: TimelineProps) {
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
         keyframeId={editingKeyframeId}
+        onSave={handleKeyframeSave}
       />
     </div>
   );

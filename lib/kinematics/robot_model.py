@@ -293,47 +293,12 @@ def fuse_bitfield_2_bytearray(var_in):
 
 # Splits byte to bitfield list
 def split_2_bitfield(var_in):
-    #return [var_in >> i & 1 for i in range(7,-1,-1)] 
     return [(var_in >> i) & 1 for i in range(7, -1, -1)]
 
 
 if __name__ == "__main__":
-    """
-    print(DEG2STEPS(180,2))
-    print(STEPS2DEG(57905,2))
-    print(RAD2STEPS(pi,5))
-    print(STEPS2RADS(32000,5))
-    print(SPEED_STEPS2DEG(1000,5))
-    print(SPEED_STEP2RAD(1000,5))
-    print(Joint_limits_radian)
-    print(Joints_standby_position_radian)
-    print(Joint_limits_steps)
-    print(Joint_limits_radian)
-    print(DEG2STEPS(-62.5,1))
-    """
-
-    # Test code for unit conversion validation
-    J0_var = STEPS2RADS(1,0)
-    J1_var = STEPS2RADS(1,1)
-    J2_var = STEPS2RADS(1,2)
-    J3_var = STEPS2RADS(1,3)
-    J4_var = STEPS2RADS(1,4)
-    J5_var = STEPS2RADS(1,5)
-
-    # Uncomment below to test joint step resolutions
-    """
-    print("Joint 1 smallest step:",RAD2DEG(J0_var))
-    print("Joint 2 smallest step:",RAD2DEG(J1_var))
-    print("Joint 3 smallest step:",RAD2DEG(J2_var))
-    print("Joint 4 smallest step:",RAD2DEG(J3_var))
-    print("Joint 5 smallest step:",RAD2DEG(J4_var))
-    print("Joint 6 smallest step:",RAD2DEG(J5_var))
-    print("rad 2 step:",SPEED_RAD2STEP(-2.948504399390715 / 2,5))
-    print("standby radian is",Joints_standby_position_radian)
-
-    test = RAD2STEPS(0.0001,5)
-    print(test)
-    """
-
-    #robot.ikine_LMS()
+    # Quick validation of unit conversion functions
+    for joint_idx in range(6):
+        step_resolution = RAD2DEG(STEPS2RADS(1, joint_idx))
+        print(f"Joint {joint_idx + 1} step resolution: {step_resolution:.6f} deg")
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, Suspense, useState } from 'react';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei';
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei';
 import * as THREE from 'three';
 import { useInputStore, useCommandStore, useHardwareStore, useTimelineStore, useRobotConfigStore } from '@/app/lib/stores';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
@@ -39,7 +39,16 @@ import { useConfigStore } from '../lib/configStore';
 
 // @ts-ignore - urdf-loader doesn't have proper types
 import URDFLoader from 'urdf-loader';
-import { STLLoader } from 'three-stdlib';
+import { STLLoader, GLTFLoader } from 'three-stdlib';
+
+// Helper to detect mesh file type
+const getMeshFileType = (filename: string): 'stl' | 'gltf' | 'glb' | null => {
+  const ext = filename.toLowerCase().split('.').pop();
+  if (ext === 'stl') return 'stl';
+  if (ext === 'gltf') return 'gltf';
+  if (ext === 'glb') return 'glb';
+  return null;
+};
 import { useFrame } from '@react-three/fiber';
 
 interface Tool {
@@ -75,41 +84,122 @@ interface Tool {
 
 // Tool Mesh Component - Positioned at J6 joint
 // Supports both single mesh tools and gripper tools with open/closed states
+// Supports both STL geometry and GLTF scenes
 function ToolMesh({
   geometry,
+  gltfScene,
   gripperMeshOpen,
   gripperMeshClosed,
+  gltfSceneOpen,
+  gltfSceneClosed,
   displayState,
   robotRef,
   tool,
   color,
-  transparency
+  transparency,
+  useUniformMaterial = false
 }: {
   geometry: THREE.BufferGeometry | null;
+  gltfScene?: THREE.Group | null;
   gripperMeshOpen?: THREE.BufferGeometry | null;
   gripperMeshClosed?: THREE.BufferGeometry | null;
+  gltfSceneOpen?: THREE.Group | null;
+  gltfSceneClosed?: THREE.Group | null;
   displayState?: 'open' | 'closed';
   robotRef: any;
   tool: Tool | null;
   color: string;
   transparency: number;
+  useUniformMaterial?: boolean; // When true, override GLTF materials with uniform color (for hardware robot)
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const gripperOpenRef = useRef<THREE.Mesh>(null);
   const gripperClosedRef = useRef<THREE.Mesh>(null);
+  const gltfRef = useRef<THREE.Group>(null);
+  const gltfOpenRef = useRef<THREE.Group>(null);
+  const gltfClosedRef = useRef<THREE.Group>(null);
+
+  // Cloned scenes with uniform materials (for hardware robot)
+  const [uniformGltfScene, setUniformGltfScene] = useState<THREE.Group | null>(null);
+  const [uniformGltfOpen, setUniformGltfOpen] = useState<THREE.Group | null>(null);
+  const [uniformGltfClosed, setUniformGltfClosed] = useState<THREE.Group | null>(null);
+
+  // Clone GLTF scenes and apply uniform materials when useUniformMaterial is true (for hardware robot)
+  useEffect(() => {
+    if (!useUniformMaterial) {
+      setUniformGltfScene(null);
+      setUniformGltfOpen(null);
+      setUniformGltfClosed(null);
+      return;
+    }
+
+    const cloneWithUniformMaterial = (scene: THREE.Group | null | undefined): THREE.Group | null => {
+      if (!scene) return null;
+      const cloned = scene.clone(true);
+      cloned.traverse((child: any) => {
+        if (child.isMesh && child.material) {
+          // Replace material with uniform MeshStandardMaterial
+          child.material = new THREE.MeshStandardMaterial({
+            color: color,
+            transparent: transparency < 1.0,
+            opacity: transparency,
+            metalness: 0.3,
+            roughness: 0.6,
+            side: THREE.DoubleSide
+          });
+        }
+      });
+      return cloned;
+    };
+
+    const newScene = cloneWithUniformMaterial(gltfScene);
+    const newOpen = cloneWithUniformMaterial(gltfSceneOpen);
+    const newClosed = cloneWithUniformMaterial(gltfSceneClosed);
+
+    setUniformGltfScene(newScene);
+    setUniformGltfOpen(newOpen);
+    setUniformGltfClosed(newClosed);
+
+    // Cleanup cloned scenes when dependencies change or unmount
+    return () => {
+      [newScene, newOpen, newClosed].forEach(scene => {
+        if (scene) {
+          scene.traverse((child: any) => {
+            if (child.isMesh) {
+              if (child.geometry) child.geometry.dispose();
+              if (child.material) child.material.dispose();
+            }
+          });
+        }
+      });
+    };
+  }, [useUniformMaterial, gltfScene, gltfSceneOpen, gltfSceneClosed, color, transparency]);
+
+  // Select which GLTF scenes to use based on useUniformMaterial
+  const activeGltfScene = useUniformMaterial ? uniformGltfScene : gltfScene;
+  const activeGltfOpen = useUniformMaterial ? uniformGltfOpen : gltfSceneOpen;
+  const activeGltfClosed = useUniformMaterial ? uniformGltfClosed : gltfSceneClosed;
 
   // Determine which mesh to show
-  const hasGripperGeometries = gripperMeshOpen || gripperMeshClosed;
-  const showMain = !hasGripperGeometries && geometry;
+  const hasGripperGeometries = !!(gripperMeshOpen || gripperMeshClosed || gltfSceneOpen || gltfSceneClosed);
+  const showMain = !hasGripperGeometries && !!(geometry || gltfScene);
   const showOpen = hasGripperGeometries && displayState === 'open';
   const showClosed = hasGripperGeometries && displayState === 'closed';
 
   // Update tool mesh position/rotation to match L6 link every frame
   useFrame(() => {
-    const refs = [meshRef, gripperOpenRef, gripperClosedRef];
+    // Collect all refs (both STL mesh refs and GLTF scene refs)
+    const objects: (THREE.Object3D | null)[] = [
+      meshRef.current,
+      gripperOpenRef.current,
+      gripperClosedRef.current,
+      gltfRef.current,
+      gltfOpenRef.current,
+      gltfClosedRef.current
+    ];
 
-    for (const ref of refs) {
-      if (!ref.current || !robotRef) continue;
+    for (const obj of objects) {
+      if (!obj || !robotRef) continue;
 
       const l6Link = robotRef.links?.['L6'];
       if (!l6Link) continue;
@@ -130,21 +220,21 @@ function ToolMesh({
         if (offset.x !== 0 || offset.y !== 0 || offset.z !== 0) {
           const localOffset = new THREE.Vector3(offset.x, offset.y, offset.z);
           const worldOffset = localOffset.applyQuaternion(l6WorldQuaternion);
-          ref.current.position.copy(l6WorldPosition).add(worldOffset);
+          obj.position.copy(l6WorldPosition).add(worldOffset);
         } else {
-          ref.current.position.copy(l6WorldPosition);
+          obj.position.copy(l6WorldPosition);
         }
       } else {
-        ref.current.position.copy(l6WorldPosition);
+        obj.position.copy(l6WorldPosition);
       }
 
       // Set base rotation from L6
-      ref.current.quaternion.copy(l6WorldQuaternion);
+      obj.quaternion.copy(l6WorldQuaternion);
 
       // Apply L6 visual origin rotation from URDF: rpy="0 0 -1.5708" (-90° Z)
       const visualOriginRotation = new THREE.Quaternion();
       visualOriginRotation.setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2, 'XYZ'));
-      ref.current.quaternion.multiply(visualOriginRotation);
+      obj.quaternion.multiply(visualOriginRotation);
 
       // Apply tool's mesh rotation offset
       if (tool?.mesh_offset) {
@@ -159,7 +249,7 @@ function ToolMesh({
           );
           const offsetQuat = new THREE.Quaternion();
           offsetQuat.setFromEuler(offsetRotation);
-          ref.current.quaternion.multiply(offsetQuat);
+          obj.quaternion.multiply(offsetQuat);
         }
       }
     }
@@ -167,8 +257,8 @@ function ToolMesh({
 
   return (
     <>
-      {/* Single mesh (for non-gripper tools) */}
-      {showMain && geometry && (
+      {/* Single STL mesh (for non-gripper tools) */}
+      {showMain && geometry && !activeGltfScene && (
         <mesh ref={meshRef} geometry={geometry}>
           <meshStandardMaterial
             color={color}
@@ -181,8 +271,13 @@ function ToolMesh({
         </mesh>
       )}
 
-      {/* Gripper open state */}
-      {showOpen && gripperMeshOpen && (
+      {/* Main GLTF scene (original materials for commander, uniform for hardware) */}
+      {showMain && activeGltfScene && (
+        <primitive ref={gltfRef} object={activeGltfScene} />
+      )}
+
+      {/* Gripper open state - STL */}
+      {showOpen && gripperMeshOpen && !activeGltfOpen && (
         <mesh ref={gripperOpenRef} geometry={gripperMeshOpen}>
           <meshStandardMaterial
             color={color}
@@ -195,8 +290,15 @@ function ToolMesh({
         </mesh>
       )}
 
-      {/* Gripper closed state */}
-      {showClosed && gripperMeshClosed && (
+      {/* Gripper open state - GLTF - use group wrapper to ensure proper scene removal */}
+      <group ref={gltfOpenRef}>
+        {showOpen && activeGltfOpen && (
+          <primitive object={activeGltfOpen} />
+        )}
+      </group>
+
+      {/* Gripper closed state - STL */}
+      {showClosed && gripperMeshClosed && !activeGltfClosed && (
         <mesh ref={gripperClosedRef} geometry={gripperMeshClosed}>
           <meshStandardMaterial
             color={color}
@@ -208,6 +310,13 @@ function ToolMesh({
           />
         </mesh>
       )}
+
+      {/* Gripper closed state - GLTF - use group wrapper to ensure proper scene removal */}
+      <group ref={gltfClosedRef}>
+        {showClosed && activeGltfClosed && (
+          <primitive object={activeGltfClosed} />
+        )}
+      </group>
     </>
   );
 }
@@ -236,10 +345,13 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
   const commandedGripperState = useCommandStore((state) => state.commandedGripperState);
   const commanderToolFromStore = useCommandStore((state) => state.commanderTool);
 
-  // Tool mesh state
+  // Tool mesh state (supports both STL geometry and GLTF scenes)
   const [toolMeshGeometry, setToolMeshGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [toolGltfScene, setToolGltfScene] = useState<THREE.Group | null>(null);
   const [gripperMeshOpen, setGripperMeshOpen] = useState<THREE.BufferGeometry | null>(null);
   const [gripperMeshClosed, setGripperMeshClosed] = useState<THREE.BufferGeometry | null>(null);
+  const [gripperGltfOpen, setGripperGltfOpen] = useState<THREE.Group | null>(null);
+  const [gripperGltfClosed, setGripperGltfClosed] = useState<THREE.Group | null>(null);
   const [currentTool, setCurrentTool] = useState<Tool | null>(null);
 
   // Helper function to properly dispose URDF robot and all its resources
@@ -350,33 +462,45 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
                 parent = parent.parent;
               }
 
+              // Convert ALL materials to MeshStandardMaterial for PBR/environment lighting support
+              if (child.material) {
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                const newMaterials: any[] = [];
+                materials.forEach((mat: any) => {
+                  if (mat) {
+                    // Convert to MeshStandardMaterial if it isn't already
+                    let standardMat: THREE.MeshStandardMaterial;
+                    if (mat.isMeshStandardMaterial) {
+                      standardMat = mat.clone();
+                    } else {
+                      // Create new MeshStandardMaterial with original color
+                      standardMat = new THREE.MeshStandardMaterial({
+                        color: mat.color || 0xffffff,
+                        map: mat.map || null,
+                        side: mat.side || THREE.FrontSide,
+                        metalness: 0.1,
+                        roughness: 0.5
+                      });
+                    }
+                    standardMat.userData.isCloned = true;
+
+                    // Apply commander robot colors from store
+                    const commanderColor = useRobotConfigStore.getState().commanderRobotColor;
+                    const commanderTransp = useRobotConfigStore.getState().commanderRobotTransparency;
+                    standardMat.color.set(commanderColor);
+                    standardMat.transparent = commanderTransp < 1.0;
+                    standardMat.opacity = commanderTransp;
+                    standardMat.depthWrite = commanderTransp >= 1.0;
+                    standardMat.needsUpdate = true;
+
+                    newMaterials.push(standardMat);
+                  }
+                });
+                child.material = Array.isArray(child.material) ? newMaterials : newMaterials[0];
+              }
+
               if (jointName) {
                 child.userData.jointName = jointName;
-
-                // Clone material for independent coloring
-                if (child.material) {
-                  const materials = Array.isArray(child.material) ? child.material : [child.material];
-                  const newMaterials: any[] = [];
-                  materials.forEach((mat: any) => {
-                    if (mat) {
-                      const clonedMat = mat.clone();
-                      clonedMat.userData.isCloned = true;
-
-                      // Apply commander robot colors from store
-                      const commanderColor = useRobotConfigStore.getState().commanderRobotColor;
-                      const commanderTransp = useRobotConfigStore.getState().commanderRobotTransparency;
-                      clonedMat.color.set(commanderColor);
-                      clonedMat.transparent = commanderTransp < 1.0;
-                      clonedMat.opacity = commanderTransp;
-                      clonedMat.depthWrite = commanderTransp >= 1.0;
-                      clonedMat.needsUpdate = true;
-
-                      newMaterials.push(clonedMat);
-                    }
-                  });
-                  child.material = Array.isArray(child.material) ? newMaterials : newMaterials[0];
-                }
-
                 // Enable raycasting for this mesh so it can be clicked
                 child.userData.clickable = true;
               }
@@ -436,31 +560,42 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
                 hardwareMeshesWithoutJoint++;
               }
 
-              // Handle both single materials and material arrays
+              // Convert to MeshStandardMaterial for PBR/environment lighting support
               const materials = Array.isArray(child.material) ? child.material : [child.material];
               const newMaterials: any[] = [];
               materials.forEach((mat: any) => {
                 if (mat) {
-                  const clonedMat = mat.clone();
-                  clonedMat.transparent = true;
+                  // Convert to MeshStandardMaterial if it isn't already
+                  let standardMat: THREE.MeshStandardMaterial;
+                  if (mat.isMeshStandardMaterial) {
+                    standardMat = mat.clone();
+                  } else {
+                    standardMat = new THREE.MeshStandardMaterial({
+                      color: mat.color || 0xffffff,
+                      map: mat.map || null,
+                      metalness: 0.1,
+                      roughness: 0.5
+                    });
+                  }
+                  standardMat.transparent = true;
 
                   // Base (no jointName) should be fully transparent
                   // Joints use configured hardware robot color and transparency
                   if (!jointName) {
-                    clonedMat.opacity = 0;
+                    standardMat.opacity = 0;
                   } else {
                     const opacity = useRobotConfigStore.getState().hardwareRobotTransparency;
                     const color = useRobotConfigStore.getState().hardwareRobotColor;
-                    clonedMat.opacity = opacity;
-                    clonedMat.color.set(color);
+                    standardMat.opacity = opacity;
+                    standardMat.color.set(color);
                   }
 
-                  clonedMat.depthWrite = false;
-                  clonedMat.side = THREE.DoubleSide;
-                  clonedMat.userData.isActualMaterial = true;
-                  clonedMat.needsUpdate = true;
+                  standardMat.depthWrite = false;
+                  standardMat.side = THREE.DoubleSide;
+                  standardMat.userData.isActualMaterial = true;
+                  standardMat.needsUpdate = true;
 
-                  newMaterials.push(clonedMat);
+                  newMaterials.push(standardMat);
                 }
               });
 
@@ -556,18 +691,30 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
           }
 
           const arrayBuffer = await meshResponse.arrayBuffer();
-          const loader = new STLLoader();
-          const geometry = loader.parse(arrayBuffer);
-
-          // Apply unit scaling only if mesh is in mm
+          const fileType = getMeshFileType(tool.mesh_file);
           const units = tool.mesh_units || 'mm';
-          if (units === 'mm') {
-            geometry.scale(0.001, 0.001, 0.001);
+          const scale = units === 'mm' ? 0.001 : 1;
+
+          if (fileType === 'stl') {
+            const loader = new STLLoader();
+            const geometry = loader.parse(arrayBuffer);
+            geometry.scale(scale, scale, scale);
+            setToolMeshGeometry(geometry);
+            setToolGltfScene(null);
+          } else if (fileType === 'glb' || fileType === 'gltf') {
+            const loader = new GLTFLoader();
+            const gltf = await new Promise<any>((resolve, reject) => {
+              loader.parse(arrayBuffer, '', resolve, reject);
+            });
+            gltf.scene.scale.set(scale, scale, scale);
+            setToolGltfScene(gltf.scene.clone());
+            setToolMeshGeometry(null);
           }
 
-          setToolMeshGeometry(geometry);
           setGripperMeshOpen(null);
           setGripperMeshClosed(null);
+          setGripperGltfOpen(null);
+          setGripperGltfClosed(null);
           logger.debug(`Tool mesh loaded successfully: ${tool.name} (${tool.mesh_file})`, 'RobotViewer');
         } else if (tool.gripper_config?.enabled) {
           // Load gripper meshes (open and closed states)
@@ -580,19 +727,35 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
               const meshResponse = await fetch(`/urdf/meshes/${tool.gripper_config.mesh_file_open}`);
               if (meshResponse.ok) {
                 const arrayBuffer = await meshResponse.arrayBuffer();
-                const loader = new STLLoader();
-                const geometry = loader.parse(arrayBuffer);
-                geometry.scale(scale, scale, scale);
-                setGripperMeshOpen(geometry);
+                const fileType = getMeshFileType(tool.gripper_config.mesh_file_open);
+
+                if (fileType === 'stl') {
+                  const loader = new STLLoader();
+                  const geometry = loader.parse(arrayBuffer);
+                  geometry.scale(scale, scale, scale);
+                  setGripperMeshOpen(geometry);
+                  setGripperGltfOpen(null);
+                } else if (fileType === 'glb' || fileType === 'gltf') {
+                  const loader = new GLTFLoader();
+                  const gltf = await new Promise<any>((resolve, reject) => {
+                    loader.parse(arrayBuffer, '', resolve, reject);
+                  });
+                  gltf.scene.scale.set(scale, scale, scale);
+                  setGripperGltfOpen(gltf.scene.clone());
+                  setGripperMeshOpen(null);
+                }
               } else {
                 setGripperMeshOpen(null);
+                setGripperGltfOpen(null);
               }
             } catch (error) {
               logger.error('Failed to load gripper open mesh', 'RobotViewer', error);
               setGripperMeshOpen(null);
+              setGripperGltfOpen(null);
             }
           } else {
             setGripperMeshOpen(null);
+            setGripperGltfOpen(null);
           }
 
           // Load closed state mesh
@@ -601,23 +764,40 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
               const meshResponse = await fetch(`/urdf/meshes/${tool.gripper_config.mesh_file_closed}`);
               if (meshResponse.ok) {
                 const arrayBuffer = await meshResponse.arrayBuffer();
-                const loader = new STLLoader();
-                const geometry = loader.parse(arrayBuffer);
-                geometry.scale(scale, scale, scale);
-                setGripperMeshClosed(geometry);
+                const fileType = getMeshFileType(tool.gripper_config.mesh_file_closed);
+
+                if (fileType === 'stl') {
+                  const loader = new STLLoader();
+                  const geometry = loader.parse(arrayBuffer);
+                  geometry.scale(scale, scale, scale);
+                  setGripperMeshClosed(geometry);
+                  setGripperGltfClosed(null);
+                } else if (fileType === 'glb' || fileType === 'gltf') {
+                  const loader = new GLTFLoader();
+                  const gltf = await new Promise<any>((resolve, reject) => {
+                    loader.parse(arrayBuffer, '', resolve, reject);
+                  });
+                  gltf.scene.scale.set(scale, scale, scale);
+                  setGripperGltfClosed(gltf.scene.clone());
+                  setGripperMeshClosed(null);
+                }
               } else {
                 setGripperMeshClosed(null);
+                setGripperGltfClosed(null);
               }
             } catch (error) {
               logger.error('Failed to load gripper closed mesh', 'RobotViewer', error);
               setGripperMeshClosed(null);
+              setGripperGltfClosed(null);
             }
           } else {
             setGripperMeshClosed(null);
+            setGripperGltfClosed(null);
           }
 
           // Clear single mesh state for gripper tools
           setToolMeshGeometry(null);
+          setToolGltfScene(null);
           logger.debug(`Gripper tool meshes loaded: ${tool.name}`, 'RobotViewer', {
             open: tool.gripper_config.mesh_file_open,
             closed: tool.gripper_config.mesh_file_closed
@@ -625,8 +805,11 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
         } else {
           // No mesh at all
           setToolMeshGeometry(null);
+          setToolGltfScene(null);
           setGripperMeshOpen(null);
           setGripperMeshClosed(null);
+          setGripperGltfOpen(null);
+          setGripperGltfClosed(null);
         }
       } catch (error) {
         logger.error('Failed to load tool mesh', 'RobotViewer', error);
@@ -756,8 +939,11 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
       {showTargetRobot && robotRef.current && (
         <ToolMesh
           geometry={toolMeshGeometry}
+          gltfScene={toolGltfScene}
           gripperMeshOpen={gripperMeshOpen}
           gripperMeshClosed={gripperMeshClosed}
+          gltfSceneOpen={gripperGltfOpen}
+          gltfSceneClosed={gripperGltfClosed}
           displayState={commandedGripperState}
           robotRef={robotRef.current}
           tool={currentTool}
@@ -768,16 +954,21 @@ function URDFRobot({ showLabels, hardwareRobotColor, hardwareRobotTransparency, 
 
       {/* Tool mesh - attached to hardware robot (outside rotated group) */}
       {/* Hardware robot shows PHYSICALLY mounted tool (not timeline tool) */}
+      {/* Uses uniform material to match robot appearance (strips GLB textures/colors) */}
       {showHardwareRobot && hardwareRobotRef.current && hardwareTool && (
         <ToolMesh
           geometry={toolMeshGeometry}
+          gltfScene={toolGltfScene}
           gripperMeshOpen={gripperMeshOpen}
           gripperMeshClosed={gripperMeshClosed}
+          gltfSceneOpen={gripperGltfOpen}
+          gltfSceneClosed={gripperGltfClosed}
           displayState={hardwareGripperState || 'open'}
           robotRef={hardwareRobotRef.current}
           tool={hardwareTool}
           color={hardwareRobotColor}
           transparency={hardwareRobotTransparency}
+          useUniformMaterial={true}
         />
       )}
 
@@ -1024,13 +1215,17 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   // Keyboard controls for cartesian TCP adjustment (WASD-QE keys)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      console.log('========== QWEASD Key Pressed ==========');
-      console.log('Key:', event.key);
-      console.log('Motion Mode:', motionMode);
+      if (isDebugMode) {
+        console.log('========== QWEASD Key Pressed ==========');
+        console.log('Key:', event.key);
+        console.log('Motion Mode:', motionMode);
+      }
 
       // Only active in cartesian mode
       if (motionMode !== 'cartesian') {
-        console.log('❌ Exiting: Not in cartesian mode');
+        if (isDebugMode) {
+          console.log('❌ Exiting: Not in cartesian mode');
+        }
         return;
       }
 
@@ -1040,7 +1235,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         event.target instanceof HTMLTextAreaElement ||
         (event.target as HTMLElement).isContentEditable
       ) {
-        console.log('❌ Exiting: Typing in input field');
+        if (isDebugMode) {
+          console.log('❌ Exiting: Typing in input field');
+        }
         return;
       }
 
@@ -1063,14 +1260,20 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       const keyPressed = event.key;
       const keyConfig = keyMap[keyPressed.toLowerCase()];
 
-      console.log('Key Config:', keyConfig);
+      if (isDebugMode) {
+        console.log('Key Config:', keyConfig);
+      }
 
       if (!keyConfig) {
-        console.log('❌ Exiting: Key not in keyMap');
+        if (isDebugMode) {
+          console.log('❌ Exiting: Key not in keyMap');
+        }
         return;
       }
 
-      console.log('✓ Valid cartesian jog key, preventing default');
+      if (isDebugMode) {
+        console.log('✓ Valid cartesian jog key, preventing default');
+      }
       event.preventDefault(); // Prevent page scrolling
 
       // Determine axis (switch to rotation if Alt is pressed)
@@ -1108,38 +1311,50 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       const currentValue = useInputStore.getState().inputCartesianPose[axis];
       const limits = CARTESIAN_LIMITS[axis];
 
-      console.log('Current inputCartesianPose:', useInputStore.getState().inputCartesianPose);
-      console.log('Current value for', axis, ':', currentValue);
-      console.log('Step:', step);
+      if (isDebugMode) {
+        console.log('Current inputCartesianPose:', useInputStore.getState().inputCartesianPose);
+        console.log('Current value for', axis, ':', currentValue);
+        console.log('Step:', step);
+      }
 
       // Calculate new value
       const newValue = currentValue + (keyConfig.direction * step);
 
-      console.log('New value (before clamp):', newValue);
+      if (isDebugMode) {
+        console.log('New value (before clamp):', newValue);
+      }
 
       // Clamp to limits
       const clampedValue = Math.max(limits.min, Math.min(limits.max, newValue));
 
-      console.log('Clamped value:', clampedValue);
+      if (isDebugMode) {
+        console.log('Clamped value:', clampedValue);
+      }
 
       // Build new cartesian pose with updated value (use fresh store state)
       const currentPose = useInputStore.getState().inputCartesianPose;
       const newCartesianPose = { ...currentPose, [axis]: clampedValue };
 
-      console.log('New cartesian pose for IK:', newCartesianPose);
-      console.log('commanderRobotRef:', commanderRobotRef ? 'EXISTS' : 'NULL');
-      console.log('computationRobotRef:', computationRobotRef ? 'EXISTS' : 'NULL');
-      console.log('computationTool:', computationTool);
+      if (isDebugMode) {
+        console.log('New cartesian pose for IK:', newCartesianPose);
+        console.log('commanderRobotRef:', commanderRobotRef ? 'EXISTS' : 'NULL');
+        console.log('computationRobotRef:', computationRobotRef ? 'EXISTS' : 'NULL');
+        console.log('computationTool:', computationTool);
+      }
 
       // Try to solve IK for the new pose
       if (!commanderRobotRef) {
-        console.log('⚠️ No commanderRobotRef, just updating value without IK');
+        if (isDebugMode) {
+          console.log('⚠️ No commanderRobotRef, just updating value without IK');
+        }
         // If robot not loaded yet, just update the value
         setInputCartesianValue(axis, clampedValue);
         return;
       }
 
-      console.log('🎯 Calling IK solver...');
+      if (isDebugMode) {
+        console.log('🎯 Calling IK solver...');
+      }
 
       const ikResult = inverseKinematicsDetailed(
         newCartesianPose,
@@ -1149,11 +1364,13 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         ikAxisMask
       );
 
-      console.log('IK Result:', ikResult);
-      console.log('IK Success:', ikResult.success);
-      console.log('IK Joint Angles:', ikResult.jointAngles);
-      console.log('IK Error:', ikResult.error);
-      console.log('=======================================');
+      if (isDebugMode) {
+        console.log('IK Result:', ikResult);
+        console.log('IK Success:', ikResult.success);
+        console.log('IK Joint Angles:', ikResult.jointAngles);
+        console.log('IK Error:', ikResult.error);
+        console.log('=======================================');
+      }
 
       if (ikResult.success && ikResult.jointAngles) {
         // IK succeeded - update both cartesian input and commanded joint angles
@@ -1590,9 +1807,14 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         )}
       </div>
 
-      <Canvas camera={{ position: [0.5, 0.4, 0.8], fov: 50 }} onPointerMissed={handleCanvasClick}>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 10, 5]} intensity={1} />
+      <Canvas
+        camera={{ position: [0.5, 0.4, 0.8], fov: 50 }}
+        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
+        onPointerMissed={handleCanvasClick}
+      >
+        <Environment preset="studio" />
+        <ambientLight intensity={0.3} />
+        <directionalLight position={[10, 10, 5]} intensity={0.5} />
         <Suspense fallback={null}>
           <URDFRobot
             showLabels={showLabels}
