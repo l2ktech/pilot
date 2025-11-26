@@ -86,10 +86,10 @@ class ElectricGripperRequest(BaseModel):
     timeout: float = Field(2.0, description="Acknowledgment timeout in seconds", gt=0)
 
 
-class PneumaticGripperRequest(BaseModel):
-    """Request to control pneumatic gripper"""
-    action: Literal['open', 'close'] = Field(..., description="Gripper action")
-    port: Literal[1, 2] = Field(..., description="Output port number")
+class SetIORequest(BaseModel):
+    """Request to set a digital output state"""
+    output: Literal[1, 2] = Field(..., description="Output pin number (1 or 2)")
+    state: bool = Field(..., description="Output state (true=HIGH, false=LOW)")
     wait_for_ack: bool = Field(False, description="Wait for command acknowledgment")
     timeout: float = Field(2.0, description="Acknowledgment timeout in seconds", gt=0)
 

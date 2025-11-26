@@ -386,7 +386,6 @@ async def stream_system_status():
                     await asyncio.sleep(1.0)
                     continue
 
-                logger.info(f"Broadcasting system metrics to {len(system_subscribers)} clients")
                 # Get system metrics
                 cpu_percent = psutil.cpu_percent(interval=0.1)
                 cpu_per_core = psutil.cpu_percent(interval=0.1, percpu=True)
@@ -768,13 +767,13 @@ async def control_electric_gripper(request: ElectricGripperRequest):
     )
 
 
-@app.post("/api/robot/gripper/pneumatic", response_model=CommandResponse)
-async def control_pneumatic_gripper(request: PneumaticGripperRequest):
-    """Control pneumatic gripper"""
+@app.post("/api/robot/io/set", response_model=CommandResponse)
+async def set_io(request: SetIORequest):
+    """Set digital output state"""
     return execute_robot_command(
-        robot_client.control_pneumatic_gripper,
-        request.action,
-        request.port,
+        robot_client.set_io,
+        request.output,
+        request.state,
         wait_for_ack=request.wait_for_ack,
         timeout=request.timeout
     )

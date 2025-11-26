@@ -5,10 +5,12 @@ import Header from '../components/Header';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recharts';
 import { useMonitoringStore } from '../lib/stores/monitoringStore';
 import { useHardwareStore } from '../lib/stores/hardwareStore';
+import { getApiBaseUrl } from '../lib/apiConfig';
 import { RefreshCw, AlertTriangle, CheckCircle, XCircle, Cpu, HardDrive, MemoryStick, Thermometer, Activity } from 'lucide-react';
 
 export default function MonitoringPage() {
@@ -22,6 +24,27 @@ export default function MonitoringPage() {
 
   // State for restart loading
   const [restartingProcess, setRestartingProcess] = useState<string | null>(null);
+
+  // Local state for output switches
+  const [output1, setOutput1] = useState(false);
+  const [output2, setOutput2] = useState(false);
+
+  // Handler for setting digital output
+  const handleSetIO = async (output: 1 | 2, state: boolean) => {
+    // Update local state immediately
+    if (output === 1) setOutput1(state);
+    if (output === 2) setOutput2(state);
+
+    try {
+      await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output, state })
+      });
+    } catch (error) {
+      console.error('Failed to set IO:', error);
+    }
+  };
 
   // Format uptime to human-readable
   const formatUptime = (seconds: number): string => {
@@ -189,6 +212,11 @@ export default function MonitoringPage() {
                 </span>
                 <span className="text-muted-foreground">OUT1:</span>
                 <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.output_1 ? '1' : '0'}</span>
+                <Switch
+                  checked={output1}
+                  onCheckedChange={(checked) => handleSetIO(1, checked)}
+                  className="ml-auto scale-75"
+                />
               </div>
               <div className="flex items-center gap-2">
                 <span className={ioStatus?.input_2 ? 'text-green-500' : 'text-gray-400'}>
@@ -203,6 +231,11 @@ export default function MonitoringPage() {
                 </span>
                 <span className="text-muted-foreground">OUT2:</span>
                 <span className="font-mono">{!ioStatus ? 'N/A' : ioStatus.output_2 ? '1' : '0'}</span>
+                <Switch
+                  checked={output2}
+                  onCheckedChange={(checked) => handleSetIO(2, checked)}
+                  className="ml-auto scale-75"
+                />
               </div>
             </div>
             <div className="flex items-center gap-4 mt-3 pt-2 border-t text-sm">

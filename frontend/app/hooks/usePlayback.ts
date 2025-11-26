@@ -8,6 +8,7 @@ import { getJointAnglesAtTime, getCartesianPoseAtTime, shouldUseCartesianInterpo
 import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { DEFAULT_FPS } from '@/app/lib/constants';
 import { moveJoints, executeTrajectory } from '@/app/lib/api';
+import { getApiBaseUrl } from '@/app/lib/apiConfig';
 import { generateCartesianWaypoints, arrayToPose, poseToArray, calculateWaypointCount } from '@/app/lib/cartesianPlanner';
 import { getToolAtTime } from '@/app/lib/toolHelpers';
 import { JointAngles, CartesianPose, Tool } from '@/app/lib/types';
@@ -377,6 +378,25 @@ export function usePlayback(availableTools: Tool[] = []) {
         // Process each crossed keyframe time
         const sortedTimes = Array.from(uniqueTimes).sort((a, b) => a - b);
         sortedTimes.forEach(async (time) => {
+          // Find the crossed keyframe and send IO commands
+          const crossedKeyframe = adjustedKeyframes.find(kf => kf.time === time);
+          if (crossedKeyframe) {
+            if (crossedKeyframe.output_1 !== undefined) {
+              fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ output: 1, state: crossedKeyframe.output_1 })
+              }).catch(err => logger.error('Failed to set output 1', 'usePlayback', err));
+            }
+            if (crossedKeyframe.output_2 !== undefined) {
+              fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ output: 2, state: crossedKeyframe.output_2 })
+              }).catch(err => logger.error('Failed to set output 2', 'usePlayback', err));
+            }
+          }
+
           // Find next keyframe time after this one
           const allKeyframeTimes = [...new Set(adjustedKeyframes.map(kf => kf.time))];
           const futureKeyframeTimes = allKeyframeTimes.filter(t => t > time);

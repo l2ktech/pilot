@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useState } from 'react';
 import { useCommandStore, useHardwareStore, useInputStore, usePerformanceStore, useRobotConfigStore } from '../lib/stores';
 import { useKinematicsStore } from '../lib/stores/kinematicsStore';
+import { useConfigStore } from '../lib/configStore';
 import { AlertTriangle, StopCircle, Target, Copy, Circle } from 'lucide-react';
 import { getApiBaseUrl } from '../lib/apiConfig';
 import { executeTrajectory } from '../lib/api';
@@ -51,6 +52,10 @@ export default function ControlOptions() {
   const isRecording = usePerformanceStore((state) => state.isRecording);
   const startRecording = usePerformanceStore((state) => state.startRecording);
   const stopRecording = usePerformanceStore((state) => state.stopRecording);
+
+  // Config store: Debug mode
+  const config = useConfigStore((state) => state.config);
+  const isDebugMode = config?.ui?.debug_mode === true;
 
   const handleHome = async () => {
     setIsHoming(true);
@@ -317,20 +322,22 @@ export default function ControlOptions() {
           {isMovingCartesianBackend ? 'Moving...' : 'Execute Cartesian Motion'}
         </Button>
 
-        {/* Performance Recording Toggle */}
-        <div className="flex items-center justify-between pt-2 border-t">
-          <div className="flex items-center gap-2">
-            <Circle className={`h-3 w-3 ${isRecording ? 'fill-red-500 text-red-500 animate-pulse' : 'text-gray-400'}`} />
-            <Label htmlFor="recording-toggle" className="text-xs font-medium cursor-pointer">
-              {isRecording ? 'Recording...' : 'Record Performance'}
-            </Label>
+        {/* Performance Recording Toggle - Only show in debug mode */}
+        {isDebugMode && (
+          <div className="flex items-center justify-between pt-2 border-t">
+            <div className="flex items-center gap-2">
+              <Circle className={`h-3 w-3 ${isRecording ? 'fill-red-500 text-red-500 animate-pulse' : 'text-gray-400'}`} />
+              <Label htmlFor="recording-toggle" className="text-xs font-medium cursor-pointer">
+                {isRecording ? 'Recording...' : 'Record Performance'}
+              </Label>
+            </div>
+            <Switch
+              id="recording-toggle"
+              checked={isRecording}
+              onCheckedChange={handleRecordingToggle}
+            />
           </div>
-          <Switch
-            id="recording-toggle"
-            checked={isRecording}
-            onCheckedChange={handleRecordingToggle}
-          />
-        </div>
+        )}
       </div>
     </Card>
   );

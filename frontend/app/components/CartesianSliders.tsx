@@ -34,9 +34,9 @@ export default function CartesianSliders() {
   const ikAxisMask = useRobotConfigStore((state) => state.ikAxisMask);
   const setIkAxisMask = useRobotConfigStore((state) => state.setIkAxisMask);
 
-  // Global config: Check if frontend is in debug mode
+  // Global config: Check if debug mode is enabled
   const config = useConfigStore((state) => state.config);
-  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
+  const isDebugMode = config?.ui?.debug_mode === true;
 
   const [ikStatus, setIkStatus] = useState<{
     type: 'idle' | 'computing' | 'success' | 'error';

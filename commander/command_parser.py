@@ -61,7 +61,7 @@ class CommandParser:
             'HOME': self._parse_home,
             'MOVEJOINT': self._parse_move_joint,
             'EXECUTETRAJECTORY': self._parse_execute_trajectory,
-            'PNEUMATICGRIPPER': self._parse_pneumatic_gripper,
+            'SET_IO': self._parse_set_io,
             'ELECTRICGRIPPER': self._parse_electric_gripper,
             'DELAY': self._parse_delay,
         }
@@ -356,30 +356,29 @@ class CommandParser:
         except Exception as e:
             return None, f"DELAY parse error: {e}"
 
-    def _parse_pneumatic_gripper(self, parts: List[str]) -> Tuple[Optional[Any], Optional[str]]:
-        """Parse PNEUMATICGRIPPER command: PNEUMATICGRIPPER|action|port"""
+    def _parse_set_io(self, parts: List[str]) -> Tuple[Optional[Any], Optional[str]]:
+        """Parse SET_IO command: SET_IO|output|state"""
         try:
             if len(parts) != 3:
-                return None, f"PNEUMATICGRIPPER expects 3 parts, got {len(parts)}"
+                return None, f"SET_IO expects 3 parts, got {len(parts)}"
 
-            action = parts[1].lower()
-            port = int(parts[2])
+            output = int(parts[1])
+            state = bool(int(parts[2]))
 
-            GripperCommand = self.command_classes.get('PNEUMATICGRIPPER')
-            if not GripperCommand:
-                return None, "GripperCommand class not provided"
+            SetIOCommand = self.command_classes.get('SET_IO')
+            if not SetIOCommand:
+                return None, "SetIOCommand class not provided"
 
-            cmd_obj = GripperCommand(
-                gripper_type='pneumatic',
-                action=action,
-                output_port=port
+            cmd_obj = SetIOCommand(
+                output=output,
+                state=state
             )
             return cmd_obj, None
 
         except ValueError as e:
-            return None, f"PNEUMATICGRIPPER parameter error: {e}"
+            return None, f"SET_IO parameter error: {e}"
         except Exception as e:
-            return None, f"PNEUMATICGRIPPER parse error: {e}"
+            return None, f"SET_IO parse error: {e}"
 
     def _parse_electric_gripper(self, parts: List[str]) -> Tuple[Optional[Any], Optional[str]]:
         """Parse ELECTRICGRIPPER command: ELECTRICGRIPPER|action|pos|speed|current"""
@@ -398,7 +397,6 @@ class CommandParser:
                 return None, "GripperCommand class not provided"
 
             cmd_obj = GripperCommand(
-                gripper_type='electric',
                 action=action,
                 position=pos,
                 speed=spd,

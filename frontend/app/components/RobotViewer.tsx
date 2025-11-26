@@ -1051,7 +1051,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
   // Config store for saving presets
   const { config, saveConfig } = useConfigStore();
-  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
+  const isDebugMode = config?.ui?.debug_mode === true;
 
   // Get all saved positions from config
   const savedPositions = getAllPositions();

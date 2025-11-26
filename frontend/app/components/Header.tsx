@@ -10,19 +10,23 @@ const baseTabs = [
   { name: 'Configuration', href: '/configuration' },
   { name: 'Camera', href: '/camera' },
   { name: 'Logs', href: '/logs' },
-  { name: 'Performance', href: '/performance' },
   { name: 'Monitoring', href: '/monitoring' },
   { name: 'Settings', href: '/settings' },
+];
+
+const debugTabs = [
+  { name: 'Performance', href: '/performance' },
+  { name: 'Debug', href: '/debug' },
 ];
 
 export default function Header() {
   const pathname = usePathname();
   const config = useConfigStore((state) => state.config);
 
-  // Only show Debug tab when frontend log level is DEBUG
-  const isDebugMode = config?.logging?.frontend?.level === 'DEBUG';
+  // Show debug tabs (Performance, Debug) only when debug mode is enabled
+  const isDebugMode = config?.ui?.debug_mode === true;
   const tabs = isDebugMode
-    ? [...baseTabs, { name: 'Debug', href: '/debug' }]
+    ? [...baseTabs, ...debugTabs]
     : baseTabs;
 
   return (

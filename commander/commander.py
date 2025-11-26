@@ -89,6 +89,7 @@ from commands import (
     HomeCommand,
     MoveJointCommand,
     ExecuteTrajectoryCommand,
+    SetIOCommand,
     GripperCommand,
     DelayCommand,
 )
@@ -262,7 +263,7 @@ command_classes = {
     'HOME': HomeCommand,
     'MOVEJOINT': MoveJointCommand,
     'EXECUTETRAJECTORY': ExecuteTrajectoryCommand,
-    'PNEUMATICGRIPPER': GripperCommand,
+    'SET_IO': SetIOCommand,
     'ELECTRICGRIPPER': GripperCommand,
     'DELAY': DelayCommand,
 }

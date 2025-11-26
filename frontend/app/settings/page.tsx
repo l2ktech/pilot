@@ -365,6 +365,22 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
+
+              {/* Debug Mode */}
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label>Debug Mode</Label>
+                <div className="col-span-2 flex items-center gap-3">
+                  <Checkbox
+                    checked={localConfig.ui.debug_mode ?? false}
+                    onCheckedChange={(checked) =>
+                      updateConfig(['ui', 'debug_mode'], checked)
+                    }
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Shows Performance menu, debug logging, and developer tools
+                  </span>
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -734,26 +750,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Runtime Controls */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">Runtime Controls</h2>
-            <div className="space-y-4">
-              {/* Acceleration Slider */}
-              <div>
-                <Label className="text-sm font-medium mb-2 block">
-                  Acceleration: {accel}%
-                </Label>
-                <Slider
-                  value={[accel]}
-                  onValueChange={(value) => setAccel(value[0])}
-                  min={0}
-                  max={100}
-                  step={1}
-                  className="w-full"
-                />
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
     </main>

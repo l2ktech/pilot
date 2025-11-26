@@ -343,44 +343,54 @@ class ExecuteTrajectoryCommand:
             self.command_step += 1
             return False
 
+class SetIOCommand:
+    """Set a digital output pin state."""
+    def __init__(self, output: int, state: bool):
+        self.output = output  # 1 or 2
+        self.state = state    # True=HIGH, False=LOW
+        self.index = 2 if output == 1 else 3  # Map to InOut_out index
+        self.is_finished = False
+        self.is_valid = output in (1, 2)
+
+        if not self.is_valid:
+            logger.debug(f"  -> VALIDATION FAILED for SetIOCommand: invalid output {output}")
+
+    def execute_step(self, InOut_out, **kwargs):
+        if not self.is_valid or self.is_finished:
+            return True
+        InOut_out[self.index] = 1 if self.state else 0
+        logger.debug(f"  -> Digital output {self.output} set to {self.state}")
+        self.is_finished = True
+        return True
+
+
 class GripperCommand:
     """
-    A single, unified, non-blocking command to control all gripper functions.
-    It internally selects the correct logic (position-based waiting, timed delay,
-    or instantaneous) based on the specified action.
+    A non-blocking command to control electric gripper functions.
+    Supports position-based movement and calibration.
     """
-    def __init__(self, gripper_type, action=None, position=100, speed=100, current=500, output_port=1):
+    def __init__(self, action=None, position=100, speed=100, current=500):
         """
-        Initializes the Gripper command and configures its internal state machine
+        Initializes the electric gripper command and configures its internal state machine
         based on the requested action.
         """
         self.is_valid = True
         self.is_finished = False
-        self.gripper_type = gripper_type.lower()
         self.action = action.lower() if action else 'move'
         self.state = "START"
         self.timeout_counter = 1000 # 10-second safety timeout for all waiting states
 
-        # --- Configure based on Gripper Type and Action ---
-        if self.gripper_type == 'electric':
-            if self.action == 'move':
-                self.target_position = position
-                self.speed = speed
-                self.current = current
-                if not (0 <= position <= 255 and 0 <= speed <= 255 and 100 <= current <= 1000):
-                    self.is_valid = False
-            elif self.action == 'calibrate':
-                self.wait_counter = 200 # 2-second fixed delay for calibration
-            else:
-                self.is_valid = False # Invalid action
-
-        elif self.gripper_type == 'pneumatic':
-            if self.action not in ['open', 'close']:
+        # --- Configure based on Action ---
+        if self.action == 'move':
+            self.target_position = position
+            self.speed = speed
+            self.current = current
+            if not (0 <= position <= 255 and 0 <= speed <= 255 and 100 <= current <= 1000):
                 self.is_valid = False
-            self.state_to_set = 1 if self.action == 'open' else 0
-            self.port_index = 2 if output_port == 1 else 3
+        elif self.action == 'calibrate':
+            self.wait_counter = 200 # 2-second fixed delay for calibration
         else:
-            self.is_valid = False
+            self.is_valid = False # Invalid action
 
         if not self.is_valid:
             logger.debug(f"  -> VALIDATION FAILED for GripperCommand with action: '{self.action}'")
@@ -395,59 +405,50 @@ class GripperCommand:
             self.is_finished = True
             return True
 
-        # --- Pneumatic Logic (Instantaneous) ---
-        if self.gripper_type == 'pneumatic':
-            InOut_out[self.port_index] = self.state_to_set
-            logger.debug("  -> Pneumatic gripper command sent.")
-            self.is_finished = True
-            return True
+        # On the first run, transition to the correct state for the action
+        if self.state == "START":
+            if self.action == 'calibrate':
+                self.state = "SEND_CALIBRATE"
+            else: # 'move'
+                self.state = "WAIT_FOR_POSITION"
 
-        # --- Electric Gripper Logic ---
-        if self.gripper_type == 'electric':
-            # On the first run, transition to the correct state for the action
-            if self.state == "START":
-                if self.action == 'calibrate':
-                    self.state = "SEND_CALIBRATE"
-                else: # 'move'
-                    self.state = "WAIT_FOR_POSITION"
-            
-            # --- Calibrate Logic (Timed Delay) ---
-            if self.state == "SEND_CALIBRATE":
-                logger.debug("  -> Sending one-shot calibrate command...")
-                Gripper_data_out[4] = 1 # Set mode to calibrate
-                self.state = "WAITING_CALIBRATION"
-                return False
+        # --- Calibrate Logic (Timed Delay) ---
+        if self.state == "SEND_CALIBRATE":
+            logger.debug("  -> Sending one-shot calibrate command...")
+            Gripper_data_out[4] = 1 # Set mode to calibrate
+            self.state = "WAITING_CALIBRATION"
+            return False
 
-            if self.state == "WAITING_CALIBRATION":
-                self.wait_counter -= 1
-                if self.wait_counter <= 0:
-                    logger.info(logger.debug("  -> Calibration delay finished."))
-                    Gripper_data_out[4] = 0 # Reset to operation mode
-                    self.is_finished = True
-                    return True
-                return False
+        if self.state == "WAITING_CALIBRATION":
+            self.wait_counter -= 1
+            if self.wait_counter <= 0:
+                logger.info(logger.debug("  -> Calibration delay finished."))
+                Gripper_data_out[4] = 0 # Reset to operation mode
+                self.is_finished = True
+                return True
+            return False
 
-            # --- Move Logic (Position-Based) ---
-            if self.state == "WAIT_FOR_POSITION":
-                # Persistently send the move command
-                Gripper_data_out[0], Gripper_data_out[1], Gripper_data_out[2] = self.target_position, self.speed, self.current
-                Gripper_data_out[4] = 0 # Operation mode
-                bitfield = [1, 1, not InOut_in[4], 1, 0, 0, 0, 0]
+        # --- Move Logic (Position-Based) ---
+        if self.state == "WAIT_FOR_POSITION":
+            # Persistently send the move command
+            Gripper_data_out[0], Gripper_data_out[1], Gripper_data_out[2] = self.target_position, self.speed, self.current
+            Gripper_data_out[4] = 0 # Operation mode
+            bitfield = [1, 1, not InOut_in[4], 1, 0, 0, 0, 0]
+            fused = PAROL6_ROBOT.fuse_bitfield_2_bytearray(bitfield)
+            Gripper_data_out[3] = int(fused.hex(), 16)
+
+            # Check for completion
+            current_position = Gripper_data_in[1]
+            if abs(current_position - self.target_position) <= 5:
+                logger.debug(f"  -> Gripper move complete.")
+                self.is_finished = True
+                # Set command back to idle
+                bitfield = [1, 0, not InOut_in[4], 1, 0, 0, 0, 0]
                 fused = PAROL6_ROBOT.fuse_bitfield_2_bytearray(bitfield)
                 Gripper_data_out[3] = int(fused.hex(), 16)
+                return True
+            return False
 
-                # Check for completion
-                current_position = Gripper_data_in[1]
-                if abs(current_position - self.target_position) <= 5:
-                    logger.debug(f"  -> Gripper move complete.")
-                    self.is_finished = True
-                    # Set command back to idle
-                    bitfield = [1, 0, not InOut_in[4], 1, 0, 0, 0, 0]
-                    fused = PAROL6_ROBOT.fuse_bitfield_2_bytearray(bitfield)
-                    Gripper_data_out[3] = int(fused.hex(), 16)
-                    return True
-                return False
-        
         return self.is_finished
 
 class DelayCommand:

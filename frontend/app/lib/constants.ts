@@ -19,7 +19,7 @@ export const JOINT_LIMITS: Record<string, JointLimit> = {
 // Joint angle offsets for URDF visualization (degrees)
 // These offsets correct the visual model to match the real robot's coordinate system
 // COMMENTED OUT FOR NEW URDF TEST - may need different values
-export const JOINT_ANGLE_OFFSETS = [0, 0, 0, 0, 0, 0];  // Was: [0, 90, 180, -90, 0, 90]
+export const JOINT_ANGLE_OFFSETS = [0, 0, 0, 0, 0, -90];  // J6 -90
 //                                 J1  J2  J3   J4  J5  J6
 
 // Timeline colors (one per joint track)

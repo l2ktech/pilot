@@ -313,7 +313,9 @@ Full API documentation available at `http://localhost:3001/redoc`
 
 **Gripper Control:**
 - `POST /api/robot/gripper/electric` - Control electric gripper
-- `POST /api/robot/gripper/pneumatic` - Control pneumatic gripper
+
+**I/O Control:**
+- `POST /api/robot/io/set` - Set digital output state
 
 **Tool Management:**
 - `GET /api/config/tools` - List all tools

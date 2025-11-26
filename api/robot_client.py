@@ -587,22 +587,23 @@ def move_robot_cartesian(
     else:
         return send_robot_command(command)
 
-def control_pneumatic_gripper(
-    action: Literal['open', 'close'], 
-    port: Literal[1, 2],
+def set_io(
+    output: Literal[1, 2],
+    state: bool,
     wait_for_ack: bool = False,
     timeout: float = 2.0,
     non_blocking: bool = False
 ):
     """
-    Controls the pneumatic gripper.
-    
+    Set a digital output pin state.
+
     Resource usage:
     - wait_for_ack=False (default): ZERO overhead, no tracking
     - wait_for_ack=True: Initializes tracker on first use
     """
-    command = f"PNEUMATICGRIPPER|{action}|{port}"
-    
+    state_int = 1 if state else 0
+    command = f"SET_IO|{output}|{state_int}"
+
     if wait_for_ack:
         return send_and_wait(command, timeout, non_blocking)
     else:
