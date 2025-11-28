@@ -101,6 +101,20 @@ export function useRobotWebSocket(
   // Update options ref when they change
   optionsRef.current = options;
 
+  // Re-subscribe when options change and we're connected
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && options) {
+      const message: any = {};
+      if (options.topics) message.subscribe = options.topics;
+      if (options.rateHz) message.rate_hz = options.rateHz;
+      if (options.logLevel) message.log_level = options.logLevel;
+
+      if (Object.keys(message).length > 0) {
+        wsRef.current.send(JSON.stringify(message));
+      }
+    }
+  }, [options?.topics?.join(','), options?.rateHz, options?.logLevel, connectionState]);
+
   // Subscribe to topics
   const subscribe = useCallback((subscriptionOptions: SubscriptionOptions) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

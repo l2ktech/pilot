@@ -13,6 +13,7 @@ export default function RootLayout({
       <head>
         <title>PAROL6 Control</title>
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons&display=block" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
       </head>
       <body className="antialiased">
         {/* Global WebSocket connection - updates Zustand store on all pages */}

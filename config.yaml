@@ -93,14 +93,6 @@ ui:
     - 180
     name: Shutdown pose
   - joints:
-    - 90
-    - -90
-    - 180
-    - 0
-    - 0
-    - 180
-    name: FK_Test_Standby
-  - joints:
     - 45
     - -80
     - 160
@@ -109,14 +101,6 @@ ui:
     - 120
     name: FK_Test_Multi
   - joints:
-    - -90
-    - -90
-    - 180
-    - 0
-    - 0
-    - 180
-    name: 180deg
-  - joints:
     - 0.7110002309331738
     - -86.52969093801923
     - 144.74922193386175
@@ -124,6 +108,30 @@ ui:
     - -51.33871187657071
     - 88.49073645563249
     name: StraightDown
+  - joints:
+    - 64.63141597067505
+    - -64.4039557921825
+    - 131.53242976875376
+    - -89.33842933923947
+    - 84.95891208334258
+    - 174.61990431430576
+    name: Pickup1
+  - joints:
+    - 0.017578125
+    - -89.99625
+    - 179.99763157894736
+    - -90
+    - 0
+    - 180
+    name: FrontFacing
+  - joints:
+    - 64.29108173782018
+    - -67.4
+    - 162.16843589677848
+    - -79.04393694096206
+    - 48.1
+    - 249
+    name: te
   show_safety_warnings: false
   step_angle: 1
   tcp_offset:
@@ -197,7 +205,7 @@ ui:
       io_pin: 1
       mesh_file_closed: Standard90_close.glb
       mesh_file_open: Standard90_open.glb
-      open_is_high: true
+      open_is_high: false
     id: duck
     mesh_file: Standard90_open.glb
     mesh_offset:

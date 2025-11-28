@@ -100,11 +100,6 @@ export default function Home() {
   const setStepAngle = useInputStore((state) => state.setStepAngle);
   const setCartesianPositionStep = useInputStore((state) => state.setCartesianPositionStep);
   const commandedTcpPose = useCommandStore((state) => state.commandedTcpPose);
-
-  // Live control state
-  const liveControlEnabled = useCommandStore((state) => state.liveControlEnabled);
-  const setLiveControlEnabled = useCommandStore((state) => state.setLiveControlEnabled);
-  const hardwareJointAngles = useHardwareStore((state) => state.hardwareJointAngles);
   const connectionStatus = useHardwareStore((state) => state.connectionStatus);
 
   // Gripper state
@@ -369,7 +364,7 @@ export default function Home() {
 
           {/* Timeline Editor - Collapsable */}
           <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen} className="flex-shrink-0">
-            <Card className={cn("transition-all", timelineOpen ? "h-[400px]" : "h-auto")}>
+            <Card data-help-target="timeline" className={cn("transition-all", timelineOpen ? "h-[400px]" : "h-auto")}>
               <CollapsibleTrigger asChild>
                 <div className="flex items-center justify-between p-3 border-b cursor-pointer hover:bg-accent/50 transition-colors">
                   <div className="flex items-center gap-2">
@@ -407,7 +402,7 @@ export default function Home() {
           {/* Control Sliders with Tabs */}
           <div className="bg-card rounded-lg border p-3">
             <Tabs value={motionMode} onValueChange={(value) => handleModeChange(value as 'joint' | 'cartesian')}>
-              <TabsList className="w-full h-8">
+              <TabsList className="w-full h-8" data-help-target="mode-tabs">
                 <TabsTrigger value="joint" className="flex-1 h-7 text-xs">
                   Joints
                 </TabsTrigger>
@@ -425,7 +420,7 @@ export default function Home() {
           </div>
 
           {/* Tool Selector */}
-          <div className="bg-card rounded-lg border p-3">
+          <div data-help-target="tool-selector" className="bg-card rounded-lg border p-3">
             <div className="flex items-center justify-between mb-2">
               <Label className="text-sm font-medium">Active Tool</Label>
               {activeTool?.gripper_config?.enabled && (
@@ -453,23 +448,6 @@ export default function Home() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          {/* Live Control Switch */}
-          <div className="bg-card rounded-lg border p-3">
-            <div className="flex items-center justify-between">
-              <Label className={liveControlEnabled && hardwareJointAngles !== null ? "text-yellow-400 font-semibold text-sm" : "text-sm"}>
-                Live Control (HW Follows)
-                {liveControlEnabled && hardwareJointAngles !== null && (
-                  <span className="ml-2 text-[9px] bg-yellow-500/20 px-1 py-0.5 rounded">LIVE</span>
-                )}
-              </Label>
-              <Switch
-                checked={liveControlEnabled && hardwareJointAngles !== null}
-                onCheckedChange={setLiveControlEnabled}
-                disabled={hardwareJointAngles === null}
-              />
-            </div>
           </div>
 
           {/* Speed & Accel Control */}

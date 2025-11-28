@@ -286,7 +286,7 @@ export default function ControlOptions() {
           size="sm"
           className="h-8 text-xs w-full"
           onClick={handleHome}
-          disabled={isHoming || isMoving || hardwareJointAngles === null}
+          disabled={isHoming || isMoving || robotStatus?.is_stopped == null}
         >
           {isHoming ? 'Homing...' : 'Home hardware robot'}
         </Button>
@@ -296,7 +296,7 @@ export default function ControlOptions() {
             <TooltipTrigger asChild>
               <Button
                 onClick={handleCopyPoseFromHardware}
-                disabled={hardwareJointAngles === null}
+                disabled={robotStatus?.is_stopped == null}
                 size="sm"
                 variant="outline"
                 className="h-8 text-xs w-full"
@@ -316,7 +316,7 @@ export default function ControlOptions() {
           size="sm"
           className="h-8 text-xs w-full"
           onClick={handleMoveCartesianBackend}
-          disabled={isMovingCartesianBackend || isMoving || hardwareJointAngles === null}
+          disabled={isMovingCartesianBackend || isMoving || robotStatus?.is_stopped == null}
         >
           <Target className="h-3.5 w-3.5 mr-1.5" />
           {isMovingCartesianBackend ? 'Moving...' : 'Execute Cartesian Motion'}

@@ -30,6 +30,68 @@ _command_tracker = None
 _tracker_lock = threading.Lock()
 
 # ============================================================================
+# J2 BACKLASH COMPENSATION
+# ============================================================================
+
+def _get_j2_backlash_offset(j2_deg: float) -> float:
+    """
+    Calculate backlash offset for J2 based on angle.
+    Returns offset in degrees (negative value).
+    """
+    if -100 <= j2_deg <= -3:
+        if j2_deg >= -90:
+            # Full offset in the main working range
+            return -6.0
+        else:
+            # Linear taper: -6° at -90°, 0° at -100°
+            t = (j2_deg + 100) / 10.0  # 0 at -100, 1 at -90
+            return -6.0 * t
+    return 0.0
+
+
+def apply_j2_backlash(joint_angles: List[float]) -> List[float]:
+    """
+    Apply backlash compensation to J2 (for outgoing commands).
+    -6 deg offset from -3° to -90°, tapering to 0 at -100°.
+
+    Returns a new list with compensated angles (does not modify input).
+    """
+    result = list(joint_angles)  # Copy to avoid modifying input
+    result[1] += _get_j2_backlash_offset(result[1])
+    return result
+
+
+def reverse_j2_backlash(joint_angles: List[float]) -> List[float]:
+    """
+    Reverse backlash compensation from J2 (for incoming feedback).
+    The robot reports the compensated position, we need to show the original.
+
+    If we commanded X and robot went to X-6, robot reports X-6.
+    We need to return X, so we add 6 back.
+
+    Returns a new list with original angles (does not modify input).
+    """
+    result = list(joint_angles)  # Copy to avoid modifying input
+    j2_deg = result[1]
+
+    # The compensated range is -106 to -9 (original -100 to -3 minus up to 6)
+    # We need to figure out the original angle and its offset
+    if -106 <= j2_deg <= -9:
+        if j2_deg >= -96:
+            # Was in full offset zone (-3 to -90 -> -9 to -96)
+            result[1] += 6.0
+        else:
+            # Was in taper zone (-90 to -100 -> -96 to -106)
+            # Compensated = original + offset, where offset = -6 * (original + 100) / 10
+            # So: compensated = original - 6 * (original + 100) / 10
+            # compensated = original - 0.6 * original - 60
+            # compensated = 0.4 * original - 60
+            # original = (compensated + 60) / 0.4
+            result[1] = (j2_deg + 60) / 0.4
+
+    return result
+
+# ============================================================================
 # ORIGINAL SEND FUNCTION - ZERO OVERHEAD
 # ============================================================================
 
@@ -312,9 +374,12 @@ def move_robot_joints(
     if duration is None and speed_percentage is None:
         error = "Error: You must provide either a duration or a speed_percentage."
         return {'status': 'INVALID', 'details': error} if wait_for_ack else error
-    
+
+    # Apply J2 backlash compensation
+    compensated_angles = apply_j2_backlash(joint_angles)
+
     # Build command
-    angles_str = "|".join(map(str, joint_angles))
+    angles_str = "|".join(map(str, compensated_angles))
     duration_str = str(duration) if duration is not None else "None"
     speed_str = str(speed_percentage) if speed_percentage is not None else "None"
     command = f"MOVEJOINT|{angles_str}|{duration_str}|{speed_str}"
@@ -403,8 +468,11 @@ def execute_trajectory(
             error = f"Error: Waypoint {i} has {len(waypoint)} joints (expected 6)"
             return {'status': 'INVALID', 'details': error} if wait_for_ack else error
 
+    # Apply J2 backlash compensation to each waypoint
+    compensated_trajectory = [apply_j2_backlash(waypoint) for waypoint in trajectory]
+
     # Build command - encode trajectory as JSON
-    trajectory_json = json.dumps(trajectory)
+    trajectory_json = json.dumps(compensated_trajectory)
     duration_str = str(duration) if duration is not None else "None"
     command = f"EXECUTETRAJECTORY|{trajectory_json}|{duration_str}"
 
@@ -1161,8 +1229,9 @@ def get_robot_joint_angles():
             parts = response_str.split('|')
             if parts[0] == 'ANGLES' and len(parts) == 2:
                 angles = [float(v) for v in parts[1].split(',')]
-                return angles
-            
+                # Reverse J2 backlash compensation for display
+                return reverse_j2_backlash(angles)
+
             return None
             
     except socket.timeout:

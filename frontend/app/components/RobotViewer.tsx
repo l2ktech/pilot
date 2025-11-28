@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, Suspense, useState } from 'react';
+import { useEffect, useRef, Suspense, useState, useCallback } from 'react';
+import { annotate, annotationGroup } from 'rough-notation';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei';
 import * as THREE from 'three';
@@ -32,8 +33,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Kbd } from '@/components/ui/kbd';
-import { Plus, Settings, HelpCircle } from 'lucide-react';
+import { Plus, Settings, HelpCircle, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '../lib/configStore';
 
@@ -1049,6 +1052,13 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   // Help dialog state
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
 
+  // Help annotations state
+  const [showHelpAnnotations, setShowHelpAnnotations] = useState(false);
+  const connectionStatusRef = useRef<HTMLDivElement>(null);
+  const liveControlRef = useRef<HTMLDivElement>(null);
+  const targetPresetsRef = useRef<HTMLDivElement>(null);
+  const helpButtonRef = useRef<HTMLDivElement>(null);
+
   // Config store for saving presets
   const { config, saveConfig } = useConfigStore();
   const isDebugMode = config?.ui?.debug_mode === true;
@@ -1064,6 +1074,111 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   useEffect(() => {
     lastValidCartesianPose.current = inputCartesianPose;
   }, [inputCartesianPose]);
+
+  // Help annotations effect
+  useEffect(() => {
+    if (!showHelpAnnotations) return;
+
+    const annotations: ReturnType<typeof annotate>[] = [];
+
+    if (connectionStatusRef.current) {
+      const a1 = annotate(connectionStatusRef.current, {
+        type: 'underline',
+        color: '#f97316', // orange-500
+        strokeWidth: 2,
+        padding: 2,
+        animationDuration: 400,
+      });
+      annotations.push(a1);
+    }
+
+    if (liveControlRef.current) {
+      const a2 = annotate(liveControlRef.current, {
+        type: 'underline',
+        color: '#facc15', // yellow-400
+        strokeWidth: 2,
+        padding: 2,
+        animationDuration: 400,
+      });
+      annotations.push(a2);
+    }
+
+    // Mode tabs (in page.tsx, query by data attribute)
+    const modeTabsEl = document.querySelector('[data-help-target="mode-tabs"]') as HTMLElement;
+    if (modeTabsEl) {
+      const a3 = annotate(modeTabsEl, {
+        type: 'bracket',
+        brackets: ['top'],
+        color: '#22c55e', // green-500
+        strokeWidth: 2,
+        padding: 4,
+        animationDuration: 400,
+      });
+      annotations.push(a3);
+    }
+
+    // Timeline (in page.tsx, query by data attribute)
+    const timelineEl = document.querySelector('[data-help-target="timeline"]') as HTMLElement;
+    if (timelineEl) {
+      const a4 = annotate(timelineEl, {
+        type: 'box',
+        color: '#3b82f6', // blue-500
+        strokeWidth: 2,
+        padding: 4,
+        animationDuration: 400,
+      });
+      annotations.push(a4);
+    }
+
+    // Target Presets (ref in this component)
+    if (targetPresetsRef.current) {
+      const a5 = annotate(targetPresetsRef.current, {
+        type: 'box',
+        color: '#ec4899', // pink-500
+        strokeWidth: 2,
+        padding: 4,
+        animationDuration: 400,
+      });
+      annotations.push(a5);
+    }
+
+    // Tool Selector (in page.tsx, query by data attribute)
+    const toolSelectorEl = document.querySelector('[data-help-target="tool-selector"]') as HTMLElement;
+    if (toolSelectorEl) {
+      const a6 = annotate(toolSelectorEl, {
+        type: 'bracket',
+        brackets: ['left'],
+        color: '#a855f7', // purple-500
+        strokeWidth: 2,
+        padding: 4,
+        animationDuration: 400,
+      });
+      annotations.push(a6);
+    }
+
+    // Help button (keyboard shortcuts)
+    if (helpButtonRef.current) {
+      const a7 = annotate(helpButtonRef.current, {
+        type: 'circle',
+        color: '#14b8a6', // teal-500
+        strokeWidth: 2,
+        padding: 2,
+        animationDuration: 400,
+      });
+      annotations.push(a7);
+    }
+
+    // Show all annotations
+    const group = annotationGroup(annotations);
+    group.show();
+
+    return () => {
+      annotations.forEach(a => {
+        a.hide();
+        a.remove();
+      });
+    };
+  }, [showHelpAnnotations]);
 
   // Handle going to a preset position
   const handleGoToPosition = async (joints: { J1: number; J2: number; J3: number; J4: number; J5: number; J6: number }, presetName: string) => {
@@ -1699,40 +1814,94 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
       {/* Robot Status - Top Right */}
       <div className="absolute top-4 right-4 bg-black/70 text-white p-2 rounded-lg text-[10px] z-10 backdrop-blur-sm">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-1.5">
-            <span className={connectionStatus === 'connected' ? 'text-green-500' : 'text-gray-500'}>●</span>
-            <span className="text-gray-400">Commander:</span>
-            <span className="font-medium">
-              {connectionStatus === 'connected' ?
-                `CONNECTED - ${robotStatus?.commander_hz?.toFixed(0) ?? '--'}Hz` :
-                connectionStatus.toUpperCase()}
-            </span>
+        <div className="space-y-1">
+          <div ref={connectionStatusRef} className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className={`text-sm ${connectionStatus === 'connected' ? 'text-green-500' : 'text-red-500'}`}>●</span>
+              <span className="text-gray-400">Backend</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-sm ${robotStatus?.is_stopped != null ? 'text-green-500' : 'text-red-500'}`}>●</span>
+              <span className="text-gray-400">Robot</span>
+              {robotStatus?.commander_hz != null && (
+                <span className="font-medium">{robotStatus.commander_hz.toFixed(0)}Hz</span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={robotStatus?.is_stopped === false ? 'text-green-500' : 'text-gray-500'}>
-              {robotStatus?.is_stopped == null ? '○' : '●'}
+          <div ref={liveControlRef} className="flex items-center gap-1.5 pt-1 border-t border-white/20">
+            <span className={liveControlEnabled && hardwareJointAngles !== null ? 'text-yellow-400' : 'text-gray-500'}>
+              {liveControlEnabled && hardwareJointAngles !== null ? '●' : '○'}
             </span>
-            <span className="text-gray-400">Robot:</span>
-            <span className="font-medium">
-              {robotStatus?.is_stopped == null ? 'N/A' :
-               robotStatus?.is_stopped === false ? 'RUNNING' : 'STOPPED'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className={robotStatus?.estop_active === false ? 'text-blue-500' :
-                           robotStatus?.estop_active === true ? 'text-red-500' : 'text-gray-500'}>
-              {robotStatus?.estop_active == null ? '-' :
-               robotStatus?.estop_active === false ? '✓' : '✗'}
-            </span>
-            <span className="text-gray-400">E-STOP:</span>
-            <span className="font-medium">
-              {robotStatus?.estop_active == null ? 'N/A' :
-               robotStatus?.estop_active === false ? 'OK' : 'ACTIVE'}
-            </span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-gray-400 cursor-help">Live Control:</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Hardware follows commanded position</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Switch
+              checked={liveControlEnabled && hardwareJointAngles !== null}
+              onCheckedChange={setLiveControlEnabled}
+              disabled={robotStatus?.is_stopped == null}
+              className="scale-75"
+            />
+            {liveControlEnabled && hardwareJointAngles !== null && (
+              <span className="text-[8px] bg-yellow-500/30 text-yellow-400 px-1 rounded">LIVE</span>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Help annotation notes */}
+      {showHelpAnnotations && (
+        <>
+          <div
+            className="absolute top-[23px] right-[175px] z-20 text-orange-400 pointer-events-none whitespace-nowrap"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Connection status to backend and robot
+          </div>
+          <div
+            className="absolute top-[62px] right-[175px] z-20 text-yellow-400 pointer-events-none whitespace-nowrap"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Live control, robot will move instantly
+          </div>
+          <div
+            className="fixed top-[30px] right-[16px] z-[100] w-[300px] text-green-400 pointer-events-none text-center"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Toggle between joint angles and coordinate input
+          </div>
+          <div
+            className="fixed bottom-[180px] left-1/2 -translate-x-1/2 z-[100] text-blue-400 pointer-events-none text-center"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '18px', lineHeight: '1.2' }}
+          >
+            Record, preview and playback motions
+          </div>
+          <div
+            className="absolute bottom-[90px] left-[250px] z-20 max-w-[180px] text-pink-400 pointer-events-none"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Save and recall robot positions
+          </div>
+          <div
+            className="fixed top-[545px] right-[336px] z-[100] max-w-[180px] text-purple-400 pointer-events-none text-right"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Change tool and open/close gripper
+          </div>
+          <div
+            className="absolute top-[155px] right-[70px] z-20 text-teal-400 pointer-events-none whitespace-nowrap"
+            style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+          >
+            Keyboard shortcuts
+          </div>
+        </>
+      )}
 
       {/* Display Controls - Gear Icon Dropdown */}
       <div className="absolute top-[110px] right-4 z-10">
@@ -1766,7 +1935,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       </div>
 
       {/* Help Icon - Below Settings */}
-      <div className="absolute top-[150px] right-4 z-10">
+      <div ref={helpButtonRef} className="absolute top-[150px] right-4 z-10">
         <button
           onClick={() => setHelpDialogOpen(true)}
           className="bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm hover:bg-black/80 transition-colors"
@@ -1776,8 +1945,22 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
         </button>
       </div>
 
+      {/* Tour/Annotations Toggle - Below Help */}
+      <div className="absolute top-[190px] right-4 z-10">
+        <button
+          onClick={() => setShowHelpAnnotations(!showHelpAnnotations)}
+          className={cn(
+            "bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm hover:bg-black/80 transition-colors",
+            showHelpAnnotations && "ring-2 ring-orange-500"
+          )}
+          title="Toggle Help Annotations"
+        >
+          <Lightbulb className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* Target Preset Buttons - Bottom Left */}
-      <div className="absolute bottom-4 left-4 bg-black/70 text-white p-3 rounded-lg text-xs z-10 backdrop-blur-sm">
+      <div ref={targetPresetsRef} className="absolute bottom-4 left-4 bg-black/70 text-white p-3 rounded-lg text-xs z-10 backdrop-blur-sm">
         <div className="flex items-center justify-between mb-2">
           <div className="font-semibold">Target Presets</div>
           <button
