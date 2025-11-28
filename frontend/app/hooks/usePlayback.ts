@@ -4,6 +4,7 @@ import { useCommandStore } from '@/app/lib/stores/commandStore';
 import { useRobotConfigStore } from '@/app/lib/stores/robotConfigStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { useInputStore } from '@/app/lib/stores/inputStore';
+import { useMotionRecordingStore } from '@/app/lib/stores/motionRecordingStore';
 import { getJointAnglesAtTime, getCartesianPoseAtTime, shouldUseCartesianInterpolation, getGripperStateAtTime } from '@/app/lib/interpolation';
 import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { DEFAULT_FPS } from '@/app/lib/constants';
@@ -628,4 +629,27 @@ export function usePlayback(availableTools: Tool[] = []) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, startTime, duration, motionMode, keyframes, setCurrentTime, stop, executeOnRobot]);
+
+  // Motion recording: Auto start/stop when executing on robot
+  const motionRecordingStarted = useRef(false);
+
+  useEffect(() => {
+    const { startRecording, stopRecording } = useMotionRecordingStore.getState();
+
+    if (isPlaying && executeOnRobot && !motionRecordingStarted.current) {
+      // Start motion recording when playback begins with executeOnRobot
+      motionRecordingStarted.current = true;
+      startRecording().then(success => {
+        if (success) {
+          logger.info('Motion recording started automatically', 'usePlayback');
+        }
+      });
+    } else if (!isPlaying && motionRecordingStarted.current) {
+      // Stop motion recording when playback stops
+      motionRecordingStarted.current = false;
+      stopRecording().then(() => {
+        logger.info('Motion recording stopped automatically', 'usePlayback');
+      });
+    }
+  }, [isPlaying, executeOnRobot]);
 }

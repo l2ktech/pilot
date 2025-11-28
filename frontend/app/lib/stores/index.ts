@@ -23,3 +23,6 @@ export type { RobotConfigStore } from './robotConfigStore';
 
 export { usePerformanceStore } from './performanceStore';
 export type { PerformanceStore, PerformanceRecording, RecordingListItem, CommandPerformance } from './performanceStore';
+
+export { useMotionRecordingStore } from './motionRecordingStore';
+export type { MotionRecordingStore, MotionRecording, MotionRecordingListItem, CommandedSample, CommanderStateSample } from './motionRecordingStore';

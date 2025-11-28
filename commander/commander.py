@@ -80,6 +80,7 @@ from network_handler import NetworkHandler
 from command_parser import CommandParser
 from command_queue import CommandQueue
 from performance_monitor import PerformanceMonitor
+from motion_recorder import MotionRecorder
 
 # Command classes and utilities
 from commands import (
@@ -1197,6 +1198,18 @@ performance_monitor = PerformanceMonitor(
 )
 logger.info(f'PerformanceMonitor initialized (target={performance_monitor.target_hz}Hz, debug_mode={performance_monitor._debug_mode})')
 
+# ============================================================================
+# TIER 2: Initialize MotionRecorder
+# ============================================================================
+# Records commanded vs actual joint positions for motion comparison analysis
+motion_recorder = MotionRecorder(
+    logger=logger,
+    sample_rate_hz=20,  # 20Hz sampling (every 50ms)
+    recordings_dir=PROJECT_ROOT / "motion_recordings",
+    steps2deg_func=PAROL6_ROBOT.STEPS2DEG
+)
+logger.info(f'MotionRecorder initialized (sample_rate={motion_recorder.sample_rate_hz}Hz)')
+
 # Set performance monitor for IK solver timing
 from lib.kinematics import ik_solver
 ik_solver.set_performance_monitor(performance_monitor)
@@ -1387,6 +1400,37 @@ while timer.elapsed_time < 1100000:
 
                 if cmd_id:
                     network_handler.send_ack(cmd_id, "COMPLETED", "Hz data sent", addr)
+
+            # ===================================================================
+            # Motion Recording Commands
+            # ===================================================================
+            elif command_name == 'START_MOTION_RECORDING':
+                # Start motion recording
+                name = parts[1] if len(parts) > 1 and parts[1] else None
+                success = motion_recorder.start_recording(name)
+                if cmd_id:
+                    if success:
+                        network_handler.send_ack(cmd_id, "COMPLETED", f"Recording started: {motion_recorder._recording_name}", addr)
+                    else:
+                        network_handler.send_ack(cmd_id, "FAILED", "Already recording", addr)
+
+            elif command_name == 'STOP_MOTION_RECORDING':
+                # Stop motion recording and return data
+                recording_data = motion_recorder.stop_recording()
+                if cmd_id:
+                    if recording_data:
+                        # Send the recording data as JSON in the response
+                        data_json = json.dumps(recording_data)
+                        network_handler.send_ack(cmd_id, "COMPLETED", data_json, addr)
+                    else:
+                        network_handler.send_ack(cmd_id, "FAILED", "No active recording", addr)
+
+            elif command_name == 'GET_MOTION_RECORDING_STATUS':
+                # Return current recording status
+                is_rec = 1 if motion_recorder.is_recording else 0
+                count = motion_recorder.sample_count
+                if cmd_id:
+                    network_handler.send_ack(cmd_id, "COMPLETED", f"{is_rec}|{count}", addr)
 
             else:
                 # Queue command for processing (store parsed data to avoid re-parsing)
@@ -1735,6 +1779,9 @@ while timer.elapsed_time < 1100000:
         Get_data(Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in,
                 Position_error_in, Timeout_error, Timing_data_in, XTR_data, Gripper_data_in)
         performance_monitor.end_phase('serial')
+
+        # --- Motion Recording (self-throttles to configured Hz) ---
+        motion_recorder.maybe_capture_sample(Position_out, Position_in)
 
     except serial.SerialException as e:
         logger.error(f"Serial communication error: {e}")

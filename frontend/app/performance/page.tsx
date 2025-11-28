@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recharts';
-import { useHardwareStore, usePerformanceStore } from '../lib/stores';
+import { useHardwareStore, usePerformanceStore, useMotionRecordingStore } from '../lib/stores';
 import { Download, Trash2, RefreshCw } from 'lucide-react';
+
+// Joint names for display
+const JOINT_NAMES = ['J1 (Base)', 'J2 (Shoulder)', 'J3 (Elbow)', 'J4 (Wrist 1)', 'J5 (Wrist 2)', 'J6 (Wrist 3)'];
 
 export default function PerformancePage() {
   // Live Hz monitoring state
@@ -25,10 +28,21 @@ export default function PerformancePage() {
   const selectRecording = usePerformanceStore((state) => state.selectRecording);
   const deleteRecording = usePerformanceStore((state) => state.deleteRecording);
 
+  // Motion recording store
+  const motionRecordings = useMotionRecordingStore((state) => state.recordings);
+  const selectedMotionRecording = useMotionRecordingStore((state) => state.selectedRecording);
+  const selectedMotionFilename = useMotionRecordingStore((state) => state.selectedFilename);
+  const isLoadingMotionRecordings = useMotionRecordingStore((state) => state.isLoadingRecordings);
+  const isLoadingMotionRecording = useMotionRecordingStore((state) => state.isLoadingRecording);
+  const fetchMotionRecordings = useMotionRecordingStore((state) => state.fetchRecordings);
+  const selectMotionRecording = useMotionRecordingStore((state) => state.selectRecording);
+  const deleteMotionRecording = useMotionRecordingStore((state) => state.deleteRecording);
+
   // Load recordings on mount
   useEffect(() => {
     fetchRecordings();
-  }, [fetchRecordings]);
+    fetchMotionRecordings();
+  }, [fetchRecordings, fetchMotionRecordings]);
 
   // Update live Hz data
   useEffect(() => {
@@ -102,6 +116,54 @@ export default function PerformancePage() {
 
   const { barData, hzData: recordingHzData } = processRecordingForCharts();
 
+  // Process motion recording data for joint comparison charts
+  const processMotionRecordingForCharts = () => {
+    if (!selectedMotionRecording) return { jointData: [] as Array<Array<{ time: number; commanded?: number; position_out: number; position_in: number }>> };
+
+    // Create data for each joint (6 arrays, one per joint)
+    const jointData: Array<Array<{ time: number; commanded?: number; position_out: number; position_in: number }>> = [[], [], [], [], [], []];
+
+    // Process commander state samples (Position_out and Position_in)
+    const commanderSamples = selectedMotionRecording.commander_state || [];
+
+    // Downsample if too many points (keep ~500 points max for chart performance)
+    const maxPoints = 500;
+    const step = Math.max(1, Math.floor(commanderSamples.length / maxPoints));
+
+    for (let i = 0; i < commanderSamples.length; i += step) {
+      const sample = commanderSamples[i];
+      const time = sample.timestamp_ms / 1000; // Convert to seconds
+
+      for (let j = 0; j < 6; j++) {
+        jointData[j].push({
+          time: Number(time.toFixed(3)),
+          position_out: sample.position_out[j],
+          position_in: sample.position_in[j],
+        });
+      }
+    }
+
+    // Add commanded samples as discrete points (they're sparse - only at keyframe crossings)
+    const commandedSamples = selectedMotionRecording.commanded || [];
+    commandedSamples.forEach(cmd => {
+      const time = cmd.t;
+      for (let j = 0; j < 6; j++) {
+        // Find the nearest commander sample and add commanded value to it
+        const nearestIdx = jointData[j].findIndex(pt => pt.time >= time);
+        if (nearestIdx !== -1 && jointData[j][nearestIdx]) {
+          jointData[j][nearestIdx].commanded = cmd.joints[j];
+        } else if (jointData[j].length > 0) {
+          // If beyond the end, add to last point
+          jointData[j][jointData[j].length - 1].commanded = cmd.joints[j];
+        }
+      }
+    });
+
+    return { jointData };
+  };
+
+  const { jointData: motionJointData } = processMotionRecordingForCharts();
+
   // Handle recording selection
   const handleRecordingSelect = (filename: string) => {
     if (filename === 'none') {
@@ -130,6 +192,36 @@ export default function PerformancePage() {
     const link = document.createElement('a');
     link.href = url;
     link.download = selectedFilename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Motion recording handlers
+  const handleMotionRecordingSelect = (filename: string) => {
+    if (filename === 'none') {
+      selectMotionRecording(null);
+    } else {
+      selectMotionRecording(filename);
+    }
+  };
+
+  const handleMotionDelete = async () => {
+    if (!selectedMotionFilename) return;
+
+    if (confirm(`Delete motion recording "${selectedMotionFilename}"?`)) {
+      await deleteMotionRecording(selectedMotionFilename);
+    }
+  };
+
+  const handleMotionExport = () => {
+    if (!selectedMotionRecording || !selectedMotionFilename) return;
+
+    const dataStr = JSON.stringify(selectedMotionRecording, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = selectedMotionFilename;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -400,6 +492,195 @@ export default function PerformancePage() {
             <Card className="p-8">
               <div className="text-center text-muted-foreground">
                 No recordings available. Start recording to capture performance data.
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Motion Comparison Section */}
+        <div className="space-y-4 pt-4 border-t">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Motion Comparison</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchMotionRecordings()}
+              disabled={isLoadingMotionRecordings}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingMotionRecordings ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            Compare commanded joint angles vs actual motor positions during timeline playback.
+            Motion recordings are captured automatically when executing on robot.
+          </p>
+
+          {/* Motion Recording Selector */}
+          <Card className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <label className="text-sm font-medium mb-2 block">Select Motion Recording</label>
+                <Select value={selectedMotionFilename || 'none'} onValueChange={handleMotionRecordingSelect}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a motion recording..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {motionRecordings.map((recording) => (
+                      <SelectItem key={recording.filename} value={recording.filename}>
+                        {recording.name} ({new Date(recording.timestamp).toLocaleString()}) - {recording.duration_s.toFixed(1)}s
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedMotionFilename && (
+                <div className="flex gap-2 pt-6">
+                  <Button variant="outline" size="sm" onClick={handleMotionExport}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={handleMotionDelete}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Joint Comparison Charts */}
+          {selectedMotionRecording && motionJointData.length > 0 && (
+            <>
+              {/* Shared Legend */}
+              <Card className="p-4">
+                <div className="flex items-center gap-6 justify-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-0.5 bg-blue-500" />
+                    <span className="text-sm">Commanded (API Target)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-0.5 bg-orange-500" style={{ borderTop: '2px dashed' }} />
+                    <span className="text-sm">Position Out (To Motors)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-0.5 bg-green-500" style={{ borderTop: '2px dotted' }} />
+                    <span className="text-sm">Position In (Feedback)</span>
+                  </div>
+                </div>
+              </Card>
+
+              {/* 6 Joint Charts */}
+              {JOINT_NAMES.map((jointName, jointIndex) => (
+                <Card key={jointIndex} className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">{jointName}</h3>
+                  <ChartContainer
+                    config={{
+                      commanded: {
+                        label: "Commanded",
+                        color: "hsl(217, 91%, 60%)",
+                      },
+                      position_out: {
+                        label: "Position Out",
+                        color: "hsl(25, 95%, 53%)",
+                      },
+                      position_in: {
+                        label: "Position In",
+                        color: "hsl(142, 76%, 36%)",
+                      },
+                    }}
+                    className="h-[200px] w-full"
+                  >
+                    <LineChart data={motionJointData[jointIndex] || []}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="time"
+                        label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                        tickFormatter={(value) => value.toFixed(1)}
+                      />
+                      <YAxis
+                        label={{ value: 'Angle (°)', angle: -90, position: 'insideLeft' }}
+                        domain={['auto', 'auto']}
+                      />
+                      <ChartTooltip
+                        content={<ChartTooltipContent />}
+                        labelFormatter={(value) => `Time: ${Number(value).toFixed(2)}s`}
+                      />
+                      {/* Position Out - dashed orange */}
+                      <Line
+                        type="monotone"
+                        dataKey="position_out"
+                        stroke="var(--color-position_out)"
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      {/* Position In - dotted green */}
+                      <Line
+                        type="monotone"
+                        dataKey="position_in"
+                        stroke="var(--color-position_in)"
+                        strokeWidth={2}
+                        strokeDasharray="2 2"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                      {/* Commanded - solid blue with dots (sparse data) */}
+                      <Line
+                        type="stepAfter"
+                        dataKey="commanded"
+                        stroke="var(--color-commanded)"
+                        strokeWidth={2}
+                        dot={{ r: 4 }}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                </Card>
+              ))}
+
+              {/* Recording Statistics */}
+              <Card className="p-4">
+                <h3 className="text-lg font-semibold mb-3">Motion Recording Details</h3>
+                <div className="grid grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <div className="text-muted-foreground">Duration</div>
+                    <div className="text-lg font-semibold">{selectedMotionRecording.metadata.duration_s.toFixed(2)}s</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Sample Rate</div>
+                    <div className="text-lg font-semibold">{selectedMotionRecording.metadata.sample_rate_hz} Hz</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Commander Samples</div>
+                    <div className="text-lg font-semibold">{selectedMotionRecording.metadata.num_samples}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Commanded Points</div>
+                    <div className="text-lg font-semibold">{selectedMotionRecording.commanded?.length || 0}</div>
+                  </div>
+                </div>
+              </Card>
+            </>
+          )}
+
+          {!selectedMotionRecording && motionRecordings.length > 0 && (
+            <Card className="p-8">
+              <div className="text-center text-muted-foreground">
+                Select a motion recording to view joint comparison charts
+              </div>
+            </Card>
+          )}
+
+          {motionRecordings.length === 0 && !isLoadingMotionRecordings && (
+            <Card className="p-8">
+              <div className="text-center text-muted-foreground">
+                No motion recordings available. Play a timeline with &quot;Execute on Robot&quot; to capture motion data.
               </div>
             </Card>
           )}

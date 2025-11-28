@@ -703,6 +703,15 @@ async def restart_pm2_process(process_name: str):
 @app.post("/api/robot/move/joints", response_model=CommandResponse)
 async def move_joints(request: MoveJointsRequest):
     """Move robot joints to specified angles"""
+    # Capture commanded angles if motion recording is active
+    if motion_recording_state["is_recording"]:
+        t = time.time() - motion_recording_state["start_time"]
+        motion_recording_state["commanded_samples"].append({
+            "t": round(t, 3),
+            "joints": request.angles,
+            "command_type": "MOVEJOINT"
+        })
+
     return execute_robot_command(
         robot_client.move_robot_joints,
         request.angles,
@@ -743,6 +752,17 @@ async def execute_trajectory_endpoint(request: ExecuteTrajectoryRequest):
 
     **Example**: Drawing a straight line at constant speed in 3D space
     """
+    # Capture first and last waypoint if motion recording is active
+    if motion_recording_state["is_recording"] and request.trajectory:
+        t = time.time() - motion_recording_state["start_time"]
+        # Log the first waypoint of the trajectory as the command target
+        motion_recording_state["commanded_samples"].append({
+            "t": round(t, 3),
+            "joints": request.trajectory[0] if request.trajectory else [],
+            "command_type": "TRAJECTORY",
+            "waypoint_count": len(request.trajectory)
+        })
+
     return execute_robot_command(
         robot_client.execute_trajectory,
         request.trajectory,
@@ -1719,6 +1739,197 @@ async def delete_performance_recording(filename: str):
     except Exception as e:
         logger.error(f"Error deleting recording {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete recording: {str(e)}")
+
+
+# ============================================================================
+# Motion Comparison Recording Endpoints
+# ============================================================================
+
+# State for capturing commanded angles at API level
+motion_recording_state = {
+    "is_recording": False,
+    "name": None,
+    "start_time": None,
+    "commanded_samples": []
+}
+
+
+@app.post("/api/motion-recording/start")
+async def start_motion_recording(name: str = None):
+    """
+    Start motion comparison recording.
+
+    Records commanded vs actual joint positions at configurable sample rate
+    for debugging motion discrepancies during timeline playback.
+    """
+    global motion_recording_state
+
+    # Initialize API-side state
+    motion_recording_state = {
+        "is_recording": True,
+        "name": name,
+        "start_time": time.time(),
+        "commanded_samples": []
+    }
+
+    # Start commander-side recording
+    result = robot_client.start_motion_recording(name, wait_for_ack=True, timeout=5.0)
+
+    if result and result.get('success'):
+        return {"success": True, "message": f"Motion recording started: {name or 'auto'}"}
+    else:
+        motion_recording_state["is_recording"] = False
+        return {"success": False, "message": result.get('details', 'Failed to start recording')}
+
+
+@app.post("/api/motion-recording/stop")
+async def stop_motion_recording():
+    """
+    Stop motion comparison recording and save to file.
+
+    Combines API-captured commanded angles with commander-captured position data.
+    """
+    global motion_recording_state
+
+    if not motion_recording_state["is_recording"]:
+        return {"success": False, "message": "No active recording"}
+
+    # Stop commander recording and get data
+    result = robot_client.stop_motion_recording(wait_for_ack=True, timeout=10.0)
+
+    if not result or not result.get('success'):
+        motion_recording_state["is_recording"] = False
+        return {"success": False, "message": "Failed to stop commander recording"}
+
+    # Parse commander data from details field (JSON string)
+    try:
+        commander_data = json.loads(result.get('details', '{}'))
+    except json.JSONDecodeError:
+        commander_data = {"metadata": {}, "commander_state": []}
+
+    # Build combined recording
+    import datetime
+    recording_name = motion_recording_state["name"] or f"motion_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    duration_s = time.time() - motion_recording_state["start_time"] if motion_recording_state["start_time"] else 0
+
+    recording = {
+        "metadata": {
+            "name": recording_name,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "duration_s": round(duration_s, 3),
+            "sample_rate_hz": commander_data.get("metadata", {}).get("sample_rate_hz", 20),
+            "num_commanded_samples": len(motion_recording_state["commanded_samples"]),
+            "num_commander_samples": len(commander_data.get("commander_state", []))
+        },
+        "commanded": motion_recording_state["commanded_samples"],
+        "commander_state": commander_data.get("commander_state", [])
+    }
+
+    # Save to file
+    recordings_dir = PROJECT_ROOT / "motion_recordings"
+    recordings_dir.mkdir(exist_ok=True)
+
+    filename = f"{recording_name}.json"
+    filepath = recordings_dir / filename
+
+    with open(filepath, 'w') as f:
+        json.dump(recording, f, indent=2)
+
+    logger.info(f"Motion recording saved: {filename} ({len(recording['commanded'])} commanded, {len(recording['commander_state'])} commander samples)")
+
+    # Reset state
+    motion_recording_state = {
+        "is_recording": False,
+        "name": None,
+        "start_time": None,
+        "commanded_samples": []
+    }
+
+    return {"success": True, "message": f"Recording saved: {filename}", "filename": filename}
+
+
+@app.get("/api/motion-recording/status")
+async def get_motion_recording_status():
+    """Get current motion recording status."""
+    commander_status = robot_client.get_motion_recording_status()
+    return {
+        "is_recording": motion_recording_state["is_recording"],
+        "api_sample_count": len(motion_recording_state["commanded_samples"]),
+        "commander_sample_count": commander_status.get("sample_count", 0)
+    }
+
+
+@app.get("/api/motion-recordings")
+async def list_motion_recordings():
+    """List all available motion comparison recordings."""
+    try:
+        recordings_dir = PROJECT_ROOT / "motion_recordings"
+        recordings_dir.mkdir(exist_ok=True)
+
+        recording_files = sorted(
+            recordings_dir.glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+
+        recordings = []
+        for filepath in recording_files:
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+
+                metadata = data.get('metadata', {})
+                recordings.append({
+                    "filename": filepath.name,
+                    "name": metadata.get('name', filepath.stem),
+                    "timestamp": metadata.get('timestamp', ''),
+                    "duration_s": metadata.get('duration_s', 0),
+                    "num_commanded_samples": metadata.get('num_commanded_samples', len(data.get('commanded', []))),
+                    "num_commander_samples": metadata.get('num_commander_samples', len(data.get('commander_state', [])))
+                })
+            except Exception as e:
+                logger.warning(f"Failed to read motion recording {filepath.name}: {e}")
+                continue
+
+        return recordings
+
+    except Exception as e:
+        logger.error(f"Error listing motion recordings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/motion-recordings/{filename}")
+async def get_motion_recording(filename: str):
+    """Get a specific motion comparison recording with all samples."""
+    recordings_dir = PROJECT_ROOT / "motion_recordings"
+    filepath = recordings_dir / filename
+
+    # Security: prevent path traversal
+    if not filepath.resolve().is_relative_to(recordings_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    with open(filepath, 'r') as f:
+        return json.load(f)
+
+
+@app.delete("/api/motion-recordings/{filename}")
+async def delete_motion_recording(filename: str):
+    """Delete a motion comparison recording."""
+    recordings_dir = PROJECT_ROOT / "motion_recordings"
+    filepath = recordings_dir / filename
+
+    if not filepath.resolve().is_relative_to(recordings_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    filepath.unlink()
+    logger.info(f"Deleted motion recording: {filename}")
+    return {"success": True, "message": f"Deleted {filename}"}
 
 
 # ============================================================================

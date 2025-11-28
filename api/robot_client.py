@@ -1513,6 +1513,68 @@ def set_performance_recording(enabled: bool, wait_for_ack: bool = False, timeout
     else:
         return send_robot_command(command)
 
+# ============================================================================
+# MOTION RECORDING FUNCTIONS
+# ============================================================================
+
+def start_motion_recording(name: str = None, wait_for_ack: bool = True, timeout: float = 5.0):
+    """
+    Start motion comparison recording in the commander.
+
+    Args:
+        name: Optional recording name (auto-generated if not provided)
+        wait_for_ack: Whether to wait for acknowledgment
+        timeout: Timeout for acknowledgment in seconds
+
+    Returns:
+        Dict with status and details
+    """
+    command = f"START_MOTION_RECORDING|{name or ''}"
+    if wait_for_ack:
+        return send_and_wait(command, timeout)
+    else:
+        return send_robot_command(command)
+
+
+def stop_motion_recording(wait_for_ack: bool = True, timeout: float = 10.0):
+    """
+    Stop motion comparison recording and get the recorded data.
+
+    Args:
+        wait_for_ack: Whether to wait for acknowledgment (should be True to get data)
+        timeout: Timeout for acknowledgment in seconds (longer to allow data transfer)
+
+    Returns:
+        Dict with status and recording data in details field
+    """
+    command = "STOP_MOTION_RECORDING"
+    if wait_for_ack:
+        return send_and_wait(command, timeout)
+    else:
+        return send_robot_command(command)
+
+
+def get_motion_recording_status(wait_for_ack: bool = True, timeout: float = 2.0):
+    """
+    Get current motion recording status.
+
+    Returns:
+        Dict with is_recording (bool) and sample_count (int)
+    """
+    command = "GET_MOTION_RECORDING_STATUS"
+    if wait_for_ack:
+        result = send_and_wait(command, timeout)
+        if result and result.get('success') and result.get('details'):
+            parts = result['details'].split('|')
+            return {
+                'is_recording': parts[0] == '1' if len(parts) > 0 else False,
+                'sample_count': int(parts[1]) if len(parts) > 1 else 0
+            }
+        return {'is_recording': False, 'sample_count': 0}
+    else:
+        return send_robot_command(command)
+
+
 def get_homed_status():
     """
     Get the homing status for all 6 joints.
