@@ -12,10 +12,13 @@ A modern, web-based control system for the PAROL6 6-axis robotic arm featuring r
 
 - **Real-time 3D Visualization** - Interactive 3D robot model with live hardware tracking
 - **Dual Control Modes** - Joint space and Cartesian space motion control
-- **Timeline Editor** - Visual programming with keyframe-based motion sequences
+- **Timeline Editor** - Visual programming with keyframe-based motion sequences and loop variables
 - **Live Control** - Real-time hardware following with trajectory preview
 - **Advanced Kinematics** - Frontend IK solver with numerical stability and singularity handling
+- **J2 Backlash Compensation** - Automatic compensation for mechanical backlash in J2 joint
 - **Tool Management** - Configurable end-effectors with TCP offset and gripper support
+- **Interactive Help** - Built-in help annotations highlighting key UI elements
+- **Debug Mode** - Optional debug logging for troubleshooting
 - **WebSocket Streaming** - High-frequency robot status updates (1-50Hz)
 - **Camera Integration** - Optional camera feed with MJPEG streaming
 - **Saved Positions** - Store and recall common robot configurations
