@@ -1257,8 +1257,12 @@ prev_time = 0
 active_command_start_time = None
 active_command_perf_samples = []
 
-# Performance recording state
-recording_enabled = False  # When true, each command completion auto-saves to JSON
+# Performance recording state - session-based (accumulates until stopped)
+recording_armed = False  # Set by frontend, actual recording starts when command execution begins
+recording_session_active = False  # When true, command data is accumulated to session buffer
+recording_session_start_time = None  # When the session started
+recording_session_name = None  # Shared session name for both performance and motion recordings
+recording_session_commands = []  # Buffer for accumulated command performance data
 
 while timer.elapsed_time < 1100000:
     # ========================================================================
@@ -1434,6 +1438,8 @@ while timer.elapsed_time < 1100000:
 
             else:
                 # Queue command for processing (store parsed data to avoid re-parsing)
+                if command_name == 'ARM_RECORDING':
+                    logger.info(f"[Recording] Buffering ARM_RECORDING command: {message}")
                 incoming_command_buffer.append((cmd_id, message, addr))
 
     except Exception as e:
@@ -1461,23 +1467,76 @@ while timer.elapsed_time < 1100000:
         error_details = ""
 
         # ===================================================================
-        # Handle recording toggle command
+        # Handle recording arm/disarm command - Recording auto-starts on command execution
         # ===================================================================
-        if command_name == 'SET_RECORDING':
-            # Enable or disable automatic recording (1 = on, 0 = off)
+        if command_name == 'ARM_RECORDING':
+            logger.info(f"[Recording] Received ARM_RECORDING command: {message}")
+            # Arm or disarm recording (1 = arm, 0 = disarm and stop if active)
             enabled = parts[1] if len(parts) > 1 else '0'
-            recording_enabled = (enabled == '1' or enabled.upper() == 'TRUE')
+            arm_recording = (enabled == '1' or enabled.upper() == 'TRUE')
 
-            # Update performance monitor to collect samples when recording
-            if recording_enabled:
-                performance_monitor.enable_sample_collection()
+            if arm_recording:
+                recording_armed = True
+                if cmd_id:
+                    network_handler.send_ack(cmd_id, "COMPLETED", "Recording armed - will start on command execution", addr)
+                logger.info("[Recording] Armed - waiting for command execution")
+
             else:
-                performance_monitor.disable_sample_collection()
+                # Disarm and stop if currently recording
+                recording_armed = False
 
-            if cmd_id:
-                status = "enabled" if recording_enabled else "disabled"
-                network_handler.send_ack(cmd_id, "COMPLETED", f"Auto-recording {status}", addr)
-            logger.info(f"[Recording] Auto-recording {status}")
+                if recording_session_active:
+                    # Stop session and save accumulated data
+                    recording_session_active = False
+                    performance_monitor.disable_sample_collection()
+
+                    # Stop motion recording
+                    motion_recorder.stop_recording()
+
+                    # Save performance session to file if there's any data
+                    if recording_session_commands:
+                        session_end_time = datetime.datetime.now()
+                        total_duration = (session_end_time - recording_session_start_time).total_seconds()
+
+                        filename = f"{recording_session_name}.json"
+                        filepath = PROJECT_ROOT / "recordings" / filename
+
+                        # Create session recording object
+                        session_obj = {
+                            "metadata": {
+                                "name": recording_session_name,
+                                "timestamp": recording_session_start_time.isoformat(),
+                                "end_timestamp": session_end_time.isoformat(),
+                                "total_duration_s": total_duration,
+                                "robot_config": {
+                                    "com_port": config.get('robot', {}).get('com_port', ''),
+                                    "baud_rate": config.get('robot', {}).get('baud_rate', 3000000)
+                                }
+                            },
+                            "commands": recording_session_commands
+                        }
+
+                        try:
+                            with open(filepath, 'w') as f:
+                                json.dump(session_obj, f, indent=2)
+                            logger.info(f"[Recording] Session saved: {filename} ({len(recording_session_commands)} commands, {total_duration:.2f}s)")
+                        except Exception as e:
+                            logger.error(f"[Recording] Failed to save session {filename}: {e}")
+                    else:
+                        logger.info("[Recording] Session stopped (no commands recorded)")
+
+                    # Reset session state
+                    recording_session_start_time = None
+                    recording_session_name = None
+                    recording_session_commands = []
+
+                    if cmd_id:
+                        network_handler.send_ack(cmd_id, "COMPLETED", "Recording disarmed and session saved", addr)
+                else:
+                    if cmd_id:
+                        network_handler.send_ack(cmd_id, "COMPLETED", "Recording disarmed", addr)
+                    logger.info("[Recording] Disarmed")
+
             continue
 
         # ===================================================================
@@ -1643,6 +1702,37 @@ while timer.elapsed_time < 1100000:
                     active_command_start_time = time.time()
                     active_command_perf_samples = []
 
+                    # Auto-start recording when armed and first command starts executing
+                    logger.debug(f"[Recording] Check auto-start: armed={recording_armed}, session_active={recording_session_active}")
+                    if recording_armed and not recording_session_active:
+                        recording_session_active = True
+                        recording_session_start_time = datetime.datetime.now()
+                        recording_session_name = f"session_{recording_session_start_time.strftime('%Y%m%d_%H%M%S')}"
+                        recording_session_commands = []
+                        performance_monitor.enable_sample_collection()
+                        motion_recorder.start_recording(recording_session_name)
+                        logger.info(f"[Recording] Auto-started: {recording_session_name}")
+
+                    # Log commanded target to motion recording (if recording)
+                    if motion_recorder.is_recording and motion_recorder._recording_start_time:
+                        t = time.time() - motion_recorder._recording_start_time
+                        duration = getattr(active_command, 'duration', 1.0)
+
+                        # Get target joints from command
+                        target_joints = None
+                        if hasattr(active_command, 'target_angles'):
+                            target_joints = active_command.target_angles  # MoveJointCommand
+                        elif hasattr(active_command, 'trajectory') and active_command.trajectory:
+                            target_joints = active_command.trajectory[-1]  # TrajectoryCommand - last waypoint
+
+                        if target_joints:
+                            motion_recorder.log_commanded_target(
+                                t=round(t + duration, 3),  # Expected finish time
+                                joints=target_joints,
+                                command_type=type(active_command).__name__,
+                                duration=duration
+                            )
+
                     if new_cmd_id:
                         network_handler.send_ack(new_cmd_id, "EXECUTING",
                                         f"Starting {type(new_command).__name__}", new_addr)
@@ -1685,51 +1775,31 @@ while timer.elapsed_time < 1100000:
                             cmd_name = type(active_command).__name__
                             cmd_id = active_command_id if active_command_id else 'N/A'
 
-                            # If recording is enabled, save this command as a separate recording file
-                            if recording_enabled:
-                                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Include milliseconds
-                                filename = f"{timestamp}_{cmd_name}.json"
-                                filepath = PROJECT_ROOT / "recordings" / filename
-
-                                # Create recording object for this single command
-                                recording_obj = {
-                                    "metadata": {
-                                        "name": f"{cmd_name}_{timestamp}",
-                                        "timestamp": datetime.datetime.now().isoformat(),
-                                        "robot_config": {
-                                            "com_port": config.get('robot', {}).get('com_port', ''),
-                                            "baud_rate": config.get('robot', {}).get('baud_rate', 3000000)
-                                        }
+                            # If recording session is active, append command data to session buffer
+                            if recording_session_active:
+                                command_perf_data = {
+                                    "command_id": cmd_id,
+                                    "command_type": cmd_name,
+                                    "timestamp": datetime.datetime.now().isoformat(),
+                                    "duration_s": duration,
+                                    "num_cycles": num_cycles,
+                                    "cycle_stats": {
+                                        "avg_ms": avg_cycle,
+                                        "min_ms": min_cycle,
+                                        "max_ms": max_cycle
                                     },
-                                    "commands": [{
-                                        "command_id": cmd_id,
-                                        "command_type": cmd_name,
-                                        "timestamp": datetime.datetime.now().isoformat(),
-                                        "duration_s": duration,
-                                        "num_cycles": num_cycles,
-                                        "cycle_stats": {
-                                            "avg_ms": avg_cycle,
-                                            "min_ms": min_cycle,
-                                            "max_ms": max_cycle
-                                        },
-                                        "phase_stats": {
-                                            "network_ms": avg_network,
-                                            "processing_ms": avg_processing,
-                                            "execution_ms": avg_execution,
-                                            "serial_ms": avg_serial,
-                                            "ik_manipulability_ms": avg_ik_manipulability,
-                                            "ik_solve_ms": avg_ik_solve
-                                        },
-                                        "samples": active_command_perf_samples
-                                    }]
+                                    "phase_stats": {
+                                        "network_ms": avg_network,
+                                        "processing_ms": avg_processing,
+                                        "execution_ms": avg_execution,
+                                        "serial_ms": avg_serial,
+                                        "ik_manipulability_ms": avg_ik_manipulability,
+                                        "ik_solve_ms": avg_ik_solve
+                                    },
+                                    "samples": active_command_perf_samples.copy()  # Copy to avoid reference issues
                                 }
-
-                                try:
-                                    with open(filepath, 'w') as f:
-                                        json.dump(recording_obj, f, indent=2)
-                                    logger.info(f"[Recording] Saved {cmd_name}: {filename} ({num_cycles} cycles, {duration:.2f}s)")
-                                except Exception as e:
-                                    logger.error(f"[Recording] Failed to save {filename}: {e}")
+                                recording_session_commands.append(command_perf_data)
+                                logger.debug(f"[Recording] Added {cmd_name} to session ({len(recording_session_commands)} commands)")
 
                         if active_command_id:
                             # Check for error state in smooth motion commands
@@ -1748,7 +1818,52 @@ while timer.elapsed_time < 1100000:
                         active_command_id = None
                         active_command_start_time = None
                         active_command_perf_samples = []
-                        
+
+                        # Auto-stop recording when queue is empty (last command finished)
+                        # Only stop if we've been recording for at least 0.5 seconds (avoids race with batch command arrival)
+                        recording_duration = (datetime.datetime.now() - recording_session_start_time).total_seconds() if recording_session_start_time else 0
+                        if recording_session_active and command_queue.is_empty and recording_duration > 0.5:
+                            recording_session_active = False
+                            recording_armed = False  # Disarm after session completes
+                            performance_monitor.disable_sample_collection()
+                            motion_recorder.stop_recording()
+
+                            # Save performance session to file
+                            if recording_session_commands:
+                                session_end_time = datetime.datetime.now()
+                                total_duration = (session_end_time - recording_session_start_time).total_seconds()
+
+                                filename = f"{recording_session_name}.json"
+                                filepath = PROJECT_ROOT / "recordings" / filename
+
+                                session_obj = {
+                                    "metadata": {
+                                        "name": recording_session_name,
+                                        "timestamp": recording_session_start_time.isoformat(),
+                                        "end_timestamp": session_end_time.isoformat(),
+                                        "total_duration_s": total_duration,
+                                        "robot_config": {
+                                            "com_port": config.get('robot', {}).get('com_port', ''),
+                                            "baud_rate": config.get('robot', {}).get('baud_rate', 3000000)
+                                        }
+                                    },
+                                    "commands": recording_session_commands
+                                }
+
+                                try:
+                                    with open(filepath, 'w') as f:
+                                        json.dump(session_obj, f, indent=2)
+                                    logger.info(f"[Recording] Auto-stopped and saved: {filename} ({len(recording_session_commands)} commands, {total_duration:.2f}s)")
+                                except Exception as save_err:
+                                    logger.error(f"[Recording] Failed to save session {filename}: {save_err}")
+                            else:
+                                logger.info("[Recording] Auto-stopped (no commands recorded)")
+
+                            # Reset session state
+                            recording_session_start_time = None
+                            recording_session_name = None
+                            recording_session_commands = []
+
                 except Exception as e:
                     # Command execution error
                     logger.error(f"Command execution error: {e}")
@@ -1805,7 +1920,11 @@ while timer.elapsed_time < 1100000:
     if active_command and active_command_start_time:
         latest_times = performance_monitor.get_latest_phase_times()
         if latest_times:
-            # In DEBUG mode, we have detailed phase data
+            # Add timestamp relative to session start (if recording)
+            if recording_session_active and recording_session_start_time:
+                latest_times['timestamp_ms'] = round(
+                    (time.time() - recording_session_start_time.timestamp()) * 1000, 2
+                )
             active_command_perf_samples.append(latest_times)
         else:
             logger.debug(f"[PERF] No latest_times available (debug_mode={performance_monitor._debug_mode})")

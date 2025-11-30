@@ -33,6 +33,19 @@ _tracker_lock = threading.Lock()
 # J2 BACKLASH COMPENSATION
 # ============================================================================
 
+# Load J2 backlash offset from config at startup (requires API restart to change)
+def _load_j2_backlash_offset() -> float:
+    """Load J2 backlash offset from config.yaml, default to 6.0 degrees."""
+    try:
+        from utils.config_loader import get_config
+        config = get_config()
+        return float(config.get('robot', {}).get('j2_backlash_offset', 6.0))
+    except Exception as e:
+        logger.warning(f"Failed to load J2 backlash offset from config: {e}, using default 6.0")
+        return 6.0
+
+J2_BACKLASH_OFFSET = _load_j2_backlash_offset()
+
 def _get_j2_backlash_offset(j2_deg: float) -> float:
     """
     Calculate backlash offset for J2 based on angle.
@@ -41,11 +54,11 @@ def _get_j2_backlash_offset(j2_deg: float) -> float:
     if -100 <= j2_deg <= -3:
         if j2_deg >= -90:
             # Full offset in the main working range
-            return -6.0
+            return -J2_BACKLASH_OFFSET
         else:
-            # Linear taper: -6° at -90°, 0° at -100°
+            # Linear taper: full offset at -90°, 0° at -100°
             t = (j2_deg + 100) / 10.0  # 0 at -100, 1 at -90
-            return -6.0 * t
+            return -J2_BACKLASH_OFFSET * t
     return 0.0
 
 
@@ -66,28 +79,33 @@ def reverse_j2_backlash(joint_angles: List[float]) -> List[float]:
     Reverse backlash compensation from J2 (for incoming feedback).
     The robot reports the compensated position, we need to show the original.
 
-    If we commanded X and robot went to X-6, robot reports X-6.
-    We need to return X, so we add 6 back.
+    If we commanded X and robot went to X-offset, robot reports X-offset.
+    We need to return X, so we add offset back.
 
     Returns a new list with original angles (does not modify input).
     """
     result = list(joint_angles)  # Copy to avoid modifying input
     j2_deg = result[1]
+    offset = J2_BACKLASH_OFFSET
 
-    # The compensated range is -106 to -9 (original -100 to -3 minus up to 6)
+    # The compensated range is -(100+offset) to -(3+offset) (original -100 to -3 minus up to offset)
     # We need to figure out the original angle and its offset
-    if -106 <= j2_deg <= -9:
-        if j2_deg >= -96:
-            # Was in full offset zone (-3 to -90 -> -9 to -96)
-            result[1] += 6.0
+    lower_bound = -100 - offset  # e.g., -106 for offset=6
+    upper_bound = -3 - offset    # e.g., -9 for offset=6
+    taper_threshold = -90 - offset  # e.g., -96 for offset=6
+
+    if lower_bound <= j2_deg <= upper_bound:
+        if j2_deg >= taper_threshold:
+            # Was in full offset zone (-3 to -90 -> -(3+offset) to -(90+offset))
+            result[1] += offset
         else:
-            # Was in taper zone (-90 to -100 -> -96 to -106)
-            # Compensated = original + offset, where offset = -6 * (original + 100) / 10
-            # So: compensated = original - 6 * (original + 100) / 10
-            # compensated = original - 0.6 * original - 60
-            # compensated = 0.4 * original - 60
-            # original = (compensated + 60) / 0.4
-            result[1] = (j2_deg + 60) / 0.4
+            # Was in taper zone (-90 to -100 -> -(90+offset) to -(100+offset))
+            # Compensated = original + offset_applied, where offset_applied = -offset * (original + 100) / 10
+            # So: compensated = original - offset * (original + 100) / 10
+            # compensated = original * (1 - offset/10) - 10*offset
+            # original = (compensated + 10*offset) / (1 - offset/10)
+            divisor = 1 - offset / 10.0
+            result[1] = (j2_deg + 10 * offset) / divisor
 
     return result
 
@@ -1494,11 +1512,14 @@ def clear_estop(wait_for_ack: bool = False, timeout: float = 2.0, non_blocking: 
 
 def set_performance_recording(enabled: bool, wait_for_ack: bool = False, timeout: float = 5.0, non_blocking: bool = False):
     """
-    Enable or disable automatic performance recording.
-    When enabled, each command completion is automatically saved as a separate JSON file.
+    Arm or disarm performance and motion recording.
+
+    When armed, recording auto-starts when first command begins executing
+    and auto-stops when command queue is empty. Both performance and motion
+    data are captured with shared session names.
 
     Args:
-        enabled: True to enable auto-recording, False to disable
+        enabled: True to arm recording, False to disarm (and stop if active)
         wait_for_ack: Whether to wait for acknowledgment
         timeout: Timeout for acknowledgment in seconds
         non_blocking: Return command_id immediately if True
@@ -1506,7 +1527,7 @@ def set_performance_recording(enabled: bool, wait_for_ack: bool = False, timeout
     Resource usage: ZERO overhead if wait_for_ack=False
     """
     value = '1' if enabled else '0'
-    command = f"SET_RECORDING|{value}"
+    command = f"ARM_RECORDING|{value}"
 
     if wait_for_ack:
         return send_and_wait(command, timeout, non_blocking)

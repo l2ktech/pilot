@@ -2,7 +2,7 @@
  * API client for PAROL6 backend services
  */
 
-import { CartesianPose, JointAngles, IkAxisMask } from './types';
+import { CartesianPose, JointAngles, IkAxisMask, Tool } from './types';
 import { getApiBaseUrl } from './apiConfig';
 import { ORIENTATION_CONFIG } from './constants';
 import { logger } from './logger';
@@ -219,6 +219,59 @@ export async function stopCamera(): Promise<{
 export function getCameraStreamUrl(): string {
   return `${getApiBaseUrl()}/api/camera/stream`;
 }
+
+// ============================================================================
+// Gripper / I/O API
+// ============================================================================
+
+/**
+ * Send gripper I/O command based on tool's gripper_config
+ *
+ * @param tool - The active tool with gripper_config
+ * @param gripperState - 'open' or 'closed'
+ * @returns Success status
+ */
+export async function setGripperOutput(
+  tool: Tool,
+  gripperState: 'open' | 'closed'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!tool.gripper_config?.enabled) {
+      return { success: false, error: 'Tool does not have gripper enabled' };
+    }
+
+    const { io_pin, open_is_high } = tool.gripper_config;
+    // Calculate output state based on gripper logic
+    const outputState = gripperState === 'open' ? open_is_high : !open_is_high;
+
+    const response = await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        output: io_pin,
+        state: outputState,
+        wait_for_ack: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Set gripper output failed: ${response.status} ${response.statusText}`);
+    }
+
+    logger.debug(`Gripper ${gripperState}: pin ${io_pin} = ${outputState}`, 'API');
+    return { success: true };
+  } catch (error) {
+    logger.error('Set gripper output error', 'API', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// ============================================================================
+// Trajectory API
+// ============================================================================
 
 export interface ExecuteTrajectoryRequest {
   trajectory: number[][];  // Array of [J1-J6] in degrees

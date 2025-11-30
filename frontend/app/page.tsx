@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { MotionMode } from './lib/types';
 import { getApiBaseUrl } from './lib/apiConfig';
 import { logger } from './lib/logger';
+import { setGripperOutput } from './lib/api';
 
 interface Tool {
   id: string;
@@ -105,6 +106,7 @@ export default function Home() {
   // Gripper state
   const commandedGripperState = useCommandStore((state) => state.commandedGripperState);
   const setCommandedGripperState = useCommandStore((state) => state.setCommandedGripperState);
+  const liveControlEnabled = useCommandStore((state) => state.liveControlEnabled);
 
   // Derive active tool from tools and activeToolId
   const activeTool = useMemo(() => {
@@ -430,7 +432,14 @@ export default function Home() {
                   </span>
                   <Switch
                     checked={commandedGripperState === 'closed'}
-                    onCheckedChange={(checked) => setCommandedGripperState(checked ? 'closed' : 'open')}
+                    onCheckedChange={(checked) => {
+                      const newState = checked ? 'closed' : 'open';
+                      setCommandedGripperState(newState);
+                      // If live control is enabled, immediately send I/O command
+                      if (liveControlEnabled && activeTool?.gripper_config?.enabled) {
+                        setGripperOutput(activeTool, newState);
+                      }
+                    }}
                     className="scale-90"
                   />
                 </div>

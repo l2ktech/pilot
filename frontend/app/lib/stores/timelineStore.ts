@@ -11,6 +11,7 @@ import { getHomePosition } from '../positions';
 import { v4 as uuidv4 } from 'uuid';
 import { useCommandStore } from './commandStore';
 import { useInputStore } from './inputStore';
+import { getApiBaseUrl } from '../apiConfig';
 
 /**
  * Cached trajectory for a cartesian motion segment
@@ -131,6 +132,9 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   removeKeyframe: (id) => {
+    // Invalidate trajectory cache first (before removing keyframe)
+    get().invalidateTrajectoryCache(id);
+
     set((state) => ({
       timeline: {
         ...state.timeline,
@@ -140,6 +144,9 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   updateKeyframe: (id, updates) => {
+    // Check if updates affect trajectory (time or cartesianPose)
+    const affectsTrajectory = 'time' in updates || 'cartesianPose' in updates;
+
     set((state) => ({
       timeline: {
         ...state.timeline,
@@ -148,6 +155,12 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
           .sort((a, b) => a.time - b.time) // Re-sort if time was updated
       }
     }));
+
+    // Invalidate trajectory cache if time or pose changed
+    // This ensures stale trajectories aren't used after keyframe edits
+    if (affectsTrajectory) {
+      get().invalidateTrajectoryCache(id);
+    }
   },
 
   recordKeyframes: (cartesianPose, jointAngles) => {
@@ -283,6 +296,16 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   stop: () => {
+    const { executeOnRobot } = get().playbackState;
+
+    // If executing on robot, send STOP command to clear the commander queue
+    if (executeOnRobot) {
+      fetch(`${getApiBaseUrl()}/api/robot/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }).catch(err => console.error('Failed to send STOP command:', err));
+    }
+
     set({
       playbackState: {
         isPlaying: false,

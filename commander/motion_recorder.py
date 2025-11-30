@@ -62,6 +62,7 @@ class MotionRecorder:
         self._recording_start_time: Optional[float] = None
         self._last_sample_time_ms: float = 0
         self._samples: List[MotionSample] = []
+        self._commanded_targets: List[Dict[str, Any]] = []  # Commanded target positions
 
         # Maximum samples to prevent runaway memory usage (10 min at 50Hz)
         self._max_samples = 30000
@@ -85,17 +86,22 @@ class MotionRecorder:
         self._recording_start_time = time.time()
         self._last_sample_time_ms = 0
         self._samples = []
+        self._commanded_targets = []
         self._is_recording = True
 
         self.logger.info(f"[MotionRecorder] Started recording: {self._recording_name} @ {self.sample_rate_hz}Hz")
         return True
 
-    def stop_recording(self) -> Optional[Dict[str, Any]]:
+    def stop_recording(self, save_to_file: bool = True) -> Optional[Dict[str, Any]]:
         """
-        Stop recording and return the recorded data.
+        Stop recording and optionally save to file.
+
+        Args:
+            save_to_file: If True, saves to file and returns metadata only (for UDP).
+                         If False, returns full data (legacy behavior).
 
         Returns:
-            Recording data dict with metadata and samples, or None if not recording
+            Recording metadata dict (if save_to_file=True) or full data, or None if not recording
         """
         if not self._is_recording:
             return None
@@ -104,26 +110,52 @@ class MotionRecorder:
         duration_s = time.time() - self._recording_start_time if self._recording_start_time else 0
 
         import datetime
+        timestamp = datetime.datetime.now()
+
         recording = {
             "metadata": {
                 "name": self._recording_name,
-                "timestamp": datetime.datetime.now().isoformat(),
+                "timestamp": timestamp.isoformat(),
                 "sample_rate_hz": self.sample_rate_hz,
                 "duration_s": round(duration_s, 3),
-                "num_samples": len(self._samples)
+                "num_samples": len(self._samples),
+                "num_commanded_targets": len(self._commanded_targets)
             },
-            "commander_state": [asdict(s) for s in self._samples]
+            "commander_state": [asdict(s) for s in self._samples],
+            "commanded": self._commanded_targets
         }
 
         self.logger.info(f"[MotionRecorder] Stopped recording: {len(self._samples)} samples, {duration_s:.2f}s")
 
+        # Save to file if requested
+        filename = None
+        if save_to_file and self.recordings_dir:
+            filename = f"{self._recording_name or 'motion_' + timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+            filepath = self.recordings_dir / filename
+            self.recordings_dir.mkdir(exist_ok=True)
+            try:
+                with open(filepath, 'w') as f:
+                    json.dump(recording, f, indent=2)
+                self.logger.info(f"[MotionRecorder] Saved to {filename}")
+            except Exception as e:
+                self.logger.error(f"[MotionRecorder] Failed to save {filename}: {e}")
+                filename = None
+
         # Clear internal state
-        samples_data = recording
         self._samples = []
+        self._commanded_targets = []
         self._recording_name = None
         self._recording_start_time = None
 
-        return samples_data
+        if save_to_file:
+            # Return only metadata + filename (small enough for UDP)
+            return {
+                "metadata": recording["metadata"],
+                "filename": filename,
+                "num_samples": len(recording["commander_state"])
+            }
+        else:
+            return recording
 
     def maybe_capture_sample(self, position_out: List[int], position_in: List[int]) -> bool:
         """
@@ -181,6 +213,26 @@ class MotionRecorder:
         self._last_sample_time_ms = elapsed_since_start_ms
 
         return True
+
+    def log_commanded_target(self, t: float, joints: List[float], command_type: str, duration: float) -> None:
+        """
+        Log a commanded target position (called when command starts executing).
+
+        Args:
+            t: Expected finish time (seconds since recording start)
+            joints: Target joint angles in degrees [J1-J6]
+            command_type: Type of command (e.g., 'MoveJointCommand', 'TrajectoryCommand')
+            duration: Command duration in seconds
+        """
+        if not self._is_recording:
+            return
+
+        self._commanded_targets.append({
+            "t": t,
+            "joints": joints,
+            "command_type": command_type,
+            "duration": duration
+        })
 
     @property
     def is_recording(self) -> bool:

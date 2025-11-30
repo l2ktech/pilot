@@ -46,6 +46,7 @@ robot:
   baud_rate: 3000000
   com_port: /dev/ttyACM0
   estop_enabled: true
+  j2_backlash_offset: 6.0
   timeout: 0
 server:
   ack_port: 5002
@@ -59,7 +60,7 @@ ui:
   commander_robot:
     color: '#ffffff'
     transparency: 1
-  debug_mode: false
+  debug_mode: true
   default_acceleration_percentage: 90
   default_fps: 60
   default_speed_percentage: 50
@@ -101,14 +102,6 @@ ui:
     - 120
     name: FK_Test_Multi
   - joints:
-    - 0.7110002309331738
-    - -86.52969093801923
-    - 144.74922193386175
-    - 1.2779204231285841
-    - -51.33871187657071
-    - 88.49073645563249
-    name: StraightDown
-  - joints:
     - 64.63141597067505
     - -64.4039557921825
     - 131.53242976875376
@@ -124,23 +117,15 @@ ui:
     - 0
     - 180
     name: FrontFacing
-  - joints:
-    - 64.29108173782018
-    - -67.4
-    - 162.16843589677848
-    - -79.04393694096206
-    - 48.1
-    - 249
-    name: te
   show_safety_warnings: false
   step_angle: 1
-  tcp_offset:
-    rx: 0
-    ry: 90
-    rz: 0
-    x: 0
-    y: -50
-    z: 0
+  tcp_offset: &id001
+    rx: 0.0
+    ry: 90.0
+    rz: 0.0
+    x: 0.0
+    y: -50.0
+    z: 0.0
   tools:
   - description: No tool attached - TCP at J6 flange tip
     id: default_j6_tip
@@ -209,21 +194,15 @@ ui:
     id: duck
     mesh_file: Standard90_open.glb
     mesh_offset:
-      rx: 0
-      ry: 0
-      rz: 90
-      x: 0
-      y: 0
+      rx: 0.0
+      ry: 0.0
+      rz: 90.0
+      x: 0.0
+      y: 0.0
       z: 0.027
     mesh_units: mm
     name: Standard90
-    tcp_offset:
-      rx: 0
-      ry: 90
-      rz: 0
-      x: 0
-      y: -50
-      z: 0
+    tcp_offset: *id001
   - description: ''
     gripper_config:
       enabled: true

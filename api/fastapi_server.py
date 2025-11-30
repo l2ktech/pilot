@@ -431,9 +431,7 @@ async def stream_system_status():
                                 "timestamp": datetime.now().isoformat()
                             }
                             message_json = json.dumps(system_message, default=str)
-                            logger.info(f"Sending {len(message_json)} bytes to client {client_id[:8]}")
                             await websocket.send_text(message_json)
-                            logger.info(f"Successfully sent to {client_id[:8]}")
                         except Exception as e:
                             logger.error(f"Error sending system data to {client_id}: {e}")
 
@@ -703,15 +701,7 @@ async def restart_pm2_process(process_name: str):
 @app.post("/api/robot/move/joints", response_model=CommandResponse)
 async def move_joints(request: MoveJointsRequest):
     """Move robot joints to specified angles"""
-    # Capture commanded angles if motion recording is active
-    if motion_recording_state["is_recording"]:
-        t = time.time() - motion_recording_state["start_time"]
-        motion_recording_state["commanded_samples"].append({
-            "t": round(t, 3),
-            "joints": request.angles,
-            "command_type": "MOVEJOINT"
-        })
-
+    # Note: Commanded target logging now happens in commander when command starts executing
     return execute_robot_command(
         robot_client.move_robot_joints,
         request.angles,
@@ -752,17 +742,7 @@ async def execute_trajectory_endpoint(request: ExecuteTrajectoryRequest):
 
     **Example**: Drawing a straight line at constant speed in 3D space
     """
-    # Capture first and last waypoint if motion recording is active
-    if motion_recording_state["is_recording"] and request.trajectory:
-        t = time.time() - motion_recording_state["start_time"]
-        # Log the first waypoint of the trajectory as the command target
-        motion_recording_state["commanded_samples"].append({
-            "t": round(t, 3),
-            "joints": request.trajectory[0] if request.trajectory else [],
-            "command_type": "TRAJECTORY",
-            "waypoint_count": len(request.trajectory)
-        })
-
+    # Note: Commanded target logging now happens in commander when command starts executing
     return execute_robot_command(
         robot_client.execute_trajectory,
         request.trajectory,
@@ -1600,10 +1580,11 @@ async def camera_stream():
 @app.post("/api/performance/recording/enable", response_model=CommandResponse)
 async def enable_performance_recording():
     """
-    Enable automatic performance recording
+    Arm performance and motion recording.
 
-    When enabled, each move command completion is automatically saved
-    as a separate JSON file in the /recordings/ directory.
+    When armed, recording auto-starts when first command begins executing
+    and auto-stops when command queue is empty. Both performance and motion
+    data are captured with shared session names in /recordings/ and /motion_recordings/.
     """
     return execute_robot_command(
         robot_client.set_performance_recording,
@@ -1616,9 +1597,9 @@ async def enable_performance_recording():
 @app.post("/api/performance/recording/disable", response_model=CommandResponse)
 async def disable_performance_recording():
     """
-    Disable automatic performance recording
+    Disarm recording (and stop if currently recording).
 
-    Stops auto-saving command performance data.
+    If recording is active, stops and saves both performance and motion data.
     """
     return execute_robot_command(
         robot_client.set_performance_recording,
@@ -1745,12 +1726,11 @@ async def delete_performance_recording(filename: str):
 # Motion Comparison Recording Endpoints
 # ============================================================================
 
-# State for capturing commanded angles at API level
+# State for tracking motion recording (commander handles all data capture)
 motion_recording_state = {
     "is_recording": False,
     "name": None,
-    "start_time": None,
-    "commanded_samples": []
+    "start_time": None
 }
 
 
@@ -1764,22 +1744,28 @@ async def start_motion_recording(name: str = None):
     """
     global motion_recording_state
 
-    # Initialize API-side state
+    # Initialize API-side state (tracking only, commander handles all data capture)
     motion_recording_state = {
         "is_recording": True,
         "name": name,
-        "start_time": time.time(),
-        "commanded_samples": []
+        "start_time": time.time()
     }
 
     # Start commander-side recording
     result = robot_client.start_motion_recording(name, wait_for_ack=True, timeout=5.0)
 
-    if result and result.get('success'):
+    if result and result.get('status') == 'COMPLETED':
         return {"success": True, "message": f"Motion recording started: {name or 'auto'}"}
     else:
-        motion_recording_state["is_recording"] = False
-        return {"success": False, "message": result.get('details', 'Failed to start recording')}
+        # If commander says "Already recording", sync our state to match
+        details = result.get('details', '') if result else ''
+        if 'Already recording' in details:
+            # Commander is recording but we didn't know - keep our state as recording
+            motion_recording_state["is_recording"] = True
+            return {"success": True, "message": "Recording already in progress"}
+        else:
+            motion_recording_state["is_recording"] = False
+            return {"success": False, "message": details or 'Failed to start recording'}
 
 
 @app.post("/api/motion-recording/stop")
@@ -1787,7 +1773,7 @@ async def stop_motion_recording():
     """
     Stop motion comparison recording and save to file.
 
-    Combines API-captured commanded angles with commander-captured position data.
+    Commander handles all data capture (position_out, position_in, commanded targets).
     """
     global motion_recording_state
 
@@ -1796,53 +1782,29 @@ async def stop_motion_recording():
 
     # Stop commander recording and get data
     result = robot_client.stop_motion_recording(wait_for_ack=True, timeout=10.0)
+    logger.debug(f"[MotionRecording] Stop result: {result}")
 
-    if not result or not result.get('success'):
+    if not result or result.get('status') != 'COMPLETED':
         motion_recording_state["is_recording"] = False
+        logger.error(f"[MotionRecording] Failed to stop: status={result.get('status') if result else 'None'}, details={result.get('details') if result else 'None'}")
         return {"success": False, "message": "Failed to stop commander recording"}
 
-    # Parse commander data from details field (JSON string)
+    # Commander saves file directly and returns metadata only
     try:
         commander_data = json.loads(result.get('details', '{}'))
     except json.JSONDecodeError:
-        commander_data = {"metadata": {}, "commander_state": []}
+        commander_data = {}
 
-    # Build combined recording
-    import datetime
-    recording_name = motion_recording_state["name"] or f"motion_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    duration_s = time.time() - motion_recording_state["start_time"] if motion_recording_state["start_time"] else 0
+    filename = commander_data.get('filename', 'unknown')
+    num_samples = commander_data.get('num_samples', 0)
 
-    recording = {
-        "metadata": {
-            "name": recording_name,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "duration_s": round(duration_s, 3),
-            "sample_rate_hz": commander_data.get("metadata", {}).get("sample_rate_hz", 20),
-            "num_commanded_samples": len(motion_recording_state["commanded_samples"]),
-            "num_commander_samples": len(commander_data.get("commander_state", []))
-        },
-        "commanded": motion_recording_state["commanded_samples"],
-        "commander_state": commander_data.get("commander_state", [])
-    }
-
-    # Save to file
-    recordings_dir = PROJECT_ROOT / "motion_recordings"
-    recordings_dir.mkdir(exist_ok=True)
-
-    filename = f"{recording_name}.json"
-    filepath = recordings_dir / filename
-
-    with open(filepath, 'w') as f:
-        json.dump(recording, f, indent=2)
-
-    logger.info(f"Motion recording saved: {filename} ({len(recording['commanded'])} commanded, {len(recording['commander_state'])} commander samples)")
+    logger.info(f"Motion recording saved by commander: {filename} ({num_samples} samples)")
 
     # Reset state
     motion_recording_state = {
         "is_recording": False,
         "name": None,
-        "start_time": None,
-        "commanded_samples": []
+        "start_time": None
     }
 
     return {"success": True, "message": f"Recording saved: {filename}", "filename": filename}
@@ -1854,7 +1816,6 @@ async def get_motion_recording_status():
     commander_status = robot_client.get_motion_recording_status()
     return {
         "is_recording": motion_recording_state["is_recording"],
-        "api_sample_count": len(motion_recording_state["commanded_samples"]),
         "commander_sample_count": commander_status.get("sample_count", 0)
     }
 
@@ -1884,8 +1845,8 @@ async def list_motion_recordings():
                     "name": metadata.get('name', filepath.stem),
                     "timestamp": metadata.get('timestamp', ''),
                     "duration_s": metadata.get('duration_s', 0),
-                    "num_commanded_samples": metadata.get('num_commanded_samples', len(data.get('commanded', []))),
-                    "num_commander_samples": metadata.get('num_commander_samples', len(data.get('commander_state', [])))
+                    "num_commanded_targets": metadata.get('num_commanded_targets', len(data.get('commanded', []))),
+                    "num_samples": metadata.get('num_samples', len(data.get('commander_state', [])))
                 })
             except Exception as e:
                 logger.warning(f"Failed to read motion recording {filepath.name}: {e}")

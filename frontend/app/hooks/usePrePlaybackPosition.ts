@@ -3,6 +3,7 @@
  *
  * Ensures robot is at t=0 keyframe position before starting execute playback.
  * Moves robot to start position at 50% speed if not already there.
+ * Queues all timeline commands BEFORE starting playback for sync.
  */
 
 import { useState, useRef } from 'react';
@@ -13,6 +14,7 @@ import { moveJoints } from '../lib/api';
 import { getJointAnglesAtTime } from '../lib/interpolation';
 import { JOINT_NAMES } from '../lib/constants';
 import { logger } from '../lib/logger';
+import { sendAllTimelineCommands, validateTimelineForQueue } from './usePlayback';
 
 const POSITION_TOLERANCE_DEGREES = 0.5; // 0.5 degree tolerance (accounts for sensor noise + WebSocket latency)
 const MOVE_SPEED_PERCENTAGE = 50; // Fixed 50% speed for pre-move
@@ -30,6 +32,7 @@ function isAtPosition(actual: JointAngles, target: JointAngles, tolerance: numbe
 
 export function usePrePlaybackPosition() {
   const [isMovingToStart, setIsMovingToStart] = useState(false);
+  const [isQueueingCommands, setIsQueueingCommands] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -50,6 +53,50 @@ export function usePrePlaybackPosition() {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
+    }
+  };
+
+  /**
+   * Queue all timeline commands, then start playback.
+   * This ensures timeline starts in sync with robot motion.
+   */
+  const queueCommandsAndPlay = async (): Promise<boolean> => {
+    setIsQueueingCommands(true);
+
+    try {
+      // Validate timeline before queueing
+      const trajectoryCache = useTimelineStore.getState().trajectoryCache;
+      const validation = validateTimelineForQueue(keyframes, trajectoryCache, 0);
+
+      if (!validation.valid) {
+        setMoveError(validation.error || 'Timeline validation failed');
+        setIsQueueingCommands(false);
+        return false;
+      }
+
+      // Queue all commands to the robot
+      const result = await sendAllTimelineCommands(keyframes, trajectoryCache, 0);
+
+      if (!result.success) {
+        setMoveError(result.error || 'Failed to queue commands');
+        setIsQueueingCommands(false);
+        return false;
+      }
+
+      logger.info(`Queued ${result.commandCount} commands, starting playback`, 'PrePlayback');
+
+      setIsQueueingCommands(false);
+
+      // NOW start playback - timeline starts in sync with queued commands
+      play(true);
+      return true;
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error during command queueing';
+      logger.error('Error queueing commands', 'PrePlayback', { errorMsg });
+      setMoveError(errorMsg);
+      setIsQueueingCommands(false);
+      return false;
     }
   };
 
@@ -75,7 +122,7 @@ export function usePrePlaybackPosition() {
 
     // Check if already at position
     if (isAtPosition(hardwareJointAngles, targetPosition, POSITION_TOLERANCE_DEGREES)) {
-      play(true);
+      await queueCommandsAndPlay();
       return;
     }
 
@@ -96,7 +143,7 @@ export function usePrePlaybackPosition() {
       const immediateCheck = useHardwareStore.getState().hardwareJointAngles;
       if (immediateCheck && isAtPosition(immediateCheck, targetPosition, POSITION_TOLERANCE_DEGREES)) {
         setIsMovingToStart(false);
-        play(true);
+        await queueCommandsAndPlay();
         return;
       }
 
@@ -133,9 +180,8 @@ export function usePrePlaybackPosition() {
             clearTimers();
             setIsMovingToStart(false);
 
-            // Start playback
-            play(true);
-            resolve();
+            // Queue commands and start playback
+            queueCommandsAndPlay().then(() => resolve()).catch(reject);
           }
         }, POLL_INTERVAL_MS);
       });
@@ -152,6 +198,7 @@ export function usePrePlaybackPosition() {
   return {
     moveToStartAndPlay,
     isMovingToStart,
+    isQueueingCommands,
     moveError,
     clearError: () => setMoveError(null)
   };

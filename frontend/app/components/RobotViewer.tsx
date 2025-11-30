@@ -23,7 +23,7 @@ import { inverseKinematicsDetailed } from '../lib/kinematics';
 import { getHomePosition, getAllPositions } from '../lib/positions';
 import { getApiBaseUrl } from '../lib/apiConfig';
 import { logger } from '../lib/logger';
-import { moveJoints, executeTrajectory } from '../lib/api';
+import { moveJoints, executeTrajectory, setGripperOutput } from '../lib/api';
 import { generateCartesianWaypoints, calculateWaypointCount } from '../lib/cartesianPlanner';
 import { useSafetyConfirmation } from '../hooks/useSafetyConfirmation';
 import { calculateTcpPoseFromUrdf } from '../lib/tcpCalculations';
@@ -1006,6 +1006,8 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   const liveControlEnabled = useCommandStore((state) => state.liveControlEnabled);
   const setLiveControlEnabled = useCommandStore((state) => state.setLiveControlEnabled);
   const speed = useCommandStore((state) => state.speed);
+  const commanderTool = useCommandStore((state) => state.commanderTool);
+  const commandedGripperState = useCommandStore((state) => state.commandedGripperState);
 
   // Hardware store: Hardware feedback
   const hardwareJointAngles = useHardwareStore((state) => state.hardwareJointAngles);
@@ -1052,8 +1054,9 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   // Help dialog state
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
 
-  // Help annotations state
+  // Help annotations state - show by default on first visit, persist preference
   const [showHelpAnnotations, setShowHelpAnnotations] = useState(false);
+  const [annotationsInitialized, setAnnotationsInitialized] = useState(false);
   const connectionStatusRef = useRef<HTMLDivElement>(null);
   const liveControlRef = useRef<HTMLDivElement>(null);
   const targetPresetsRef = useRef<HTMLDivElement>(null);
@@ -1074,6 +1077,21 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
   useEffect(() => {
     lastValidCartesianPose.current = inputCartesianPose;
   }, [inputCartesianPose]);
+
+  // Initialize help annotations from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('hideHelpAnnotations');
+    // If never set (first visit), show annotations; otherwise respect stored preference
+    setShowHelpAnnotations(stored !== 'true');
+    setAnnotationsInitialized(true);
+  }, []);
+
+  // Persist help annotations preference to localStorage (only after initialization)
+  useEffect(() => {
+    if (annotationsInitialized) {
+      localStorage.setItem('hideHelpAnnotations', showHelpAnnotations ? 'false' : 'true');
+    }
+  }, [showHelpAnnotations, annotationsInitialized]);
 
   // Help annotations effect
   useEffect(() => {
@@ -1548,6 +1566,10 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
             alert(`Failed to move robot (joint): ${result.error || 'Unknown error'}`);
           } else {
             logger.debug('Command sent successfully', 'JointMotion');
+            // Also send gripper state if tool has gripper enabled
+            if (commanderTool?.gripper_config?.enabled && commandedGripperState) {
+              await setGripperOutput(commanderTool, commandedGripperState);
+            }
           }
         } catch (error) {
           logger.error('Error sending move command', 'JointMotion', error);
@@ -1558,7 +1580,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [commandedJointAngles, speed, confirmAction]);
+  }, [commandedJointAngles, speed, confirmAction, commanderTool, commandedGripperState]);
 
   // Alt+number shortcuts: Go to preset positions
   useEffect(() => {
@@ -1827,6 +1849,10 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
                 <span className="font-medium">{robotStatus.commander_hz.toFixed(0)}Hz</span>
               )}
             </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-sm ${robotStatus?.homed?.every(h => h) ? 'text-green-500' : 'text-red-500'}`}>●</span>
+              <span className="text-gray-400">Homed</span>
+            </div>
           </div>
           <div ref={liveControlRef} className="flex items-center gap-1.5 pt-1 border-t border-white/20">
             <span className={liveControlEnabled && hardwareJointAngles !== null ? 'text-yellow-400' : 'text-gray-500'}>
@@ -1889,7 +1915,7 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
             Save and recall robot positions
           </div>
           <div
-            className="fixed top-[545px] right-[336px] z-[100] max-w-[180px] text-purple-400 pointer-events-none text-right"
+            className="fixed top-[454px] right-[336px] z-[100] max-w-[180px] text-purple-400 pointer-events-none text-right"
             style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
           >
             Change tool and open/close gripper
@@ -1958,6 +1984,14 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
           <Lightbulb className="w-4 h-4" />
         </button>
       </div>
+      {showHelpAnnotations && (
+        <div
+          className="absolute top-[195px] right-[70px] z-20 text-orange-400 pointer-events-none whitespace-nowrap"
+          style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
+        >
+          Hide annotations
+        </div>
+      )}
 
       {/* Target Preset Buttons - Bottom Left */}
       <div ref={targetPresetsRef} className="absolute bottom-4 left-4 bg-black/70 text-white p-3 rounded-lg text-xs z-10 backdrop-blur-sm">

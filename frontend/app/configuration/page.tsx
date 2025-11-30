@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, Trash2, FileIcon, Plus } from 'lucide-react';
 import URDFLoader from 'urdf-loader';
 import { STLLoader, GLTFLoader } from 'three-stdlib';
@@ -353,6 +354,9 @@ export default function ConfigurationPage() {
   const setCommanderRobotColor = useRobotConfigStore((state) => state.setCommanderRobotColor);
   const setCommanderRobotTransparency = useRobotConfigStore((state) => state.setCommanderRobotTransparency);
 
+  // Robot settings
+  const [j2BacklashOffset, setJ2BacklashOffset] = useState<number>(6.0);
+
   // Tool management state
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
@@ -370,8 +374,9 @@ export default function ConfigurationPage() {
   const [meshOffset, setMeshOffset] = useState({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }); // Manual offset adjustment (position + rotation)
   const [tcpOffset, setTcpOffset] = useState({ x: 0, y: -45.2, z: -62.8, rx: 90, ry: 180, rz: 0 }); // TCP offset (position in mm, rotation in degrees)
 
-  // Gripper I/O configuration state
-  const [gripperEnabled, setGripperEnabled] = useState(false);
+  // Tool type and gripper configuration state
+  type ToolType = 'static' | 'binary' | 'variable';
+  const [toolType, setToolType] = useState<ToolType>('static');
   const [gripperIoPin, setGripperIoPin] = useState<1 | 2>(1);
   const [gripperOpenIsHigh, setGripperOpenIsHigh] = useState(true);
   const [stlFileOpen, setStlFileOpen] = useState<File | null>(null);
@@ -408,7 +413,7 @@ export default function ConfigurationPage() {
     fetchConfig();
   }, [fetchConfig]);
 
-  // Sync robot appearance from config to robotConfigStore when config loads
+  // Sync robot appearance and settings from config when config loads
   useEffect(() => {
     if (config?.ui?.hardware_robot) {
       setHardwareRobotColor(config.ui.hardware_robot.color);
@@ -417,6 +422,9 @@ export default function ConfigurationPage() {
     if (config?.ui?.commander_robot) {
       setCommanderRobotColor(config.ui.commander_robot.color);
       setCommanderRobotTransparency(config.ui.commander_robot.transparency);
+    }
+    if (config?.robot?.j2_backlash_offset !== undefined) {
+      setJ2BacklashOffset(config.robot.j2_backlash_offset);
     }
   }, [config, setHardwareRobotColor, setHardwareRobotTransparency, setCommanderRobotColor, setCommanderRobotTransparency]);
 
@@ -449,9 +457,9 @@ export default function ConfigurationPage() {
       setTcpOffset(tool.tcp_offset);
       setIsCreatingNew(false);
 
-      // Load gripper config if present
-      if (tool.gripper_config) {
-        setGripperEnabled(tool.gripper_config.enabled);
+      // Set tool type based on gripper config
+      if (tool.gripper_config?.enabled) {
+        setToolType('binary');
         setGripperIoPin(tool.gripper_config.io_pin);
         setGripperOpenIsHigh(tool.gripper_config.open_is_high);
 
@@ -521,8 +529,8 @@ export default function ConfigurationPage() {
           }
         }
       } else {
-        // Clear gripper config
-        setGripperEnabled(false);
+        // Static tool - clear gripper config
+        setToolType('static');
         setStlGeometryOpen(null);
         setStlGeometryClosed(null);
         setGltfSceneOpen(null);
@@ -597,8 +605,8 @@ export default function ConfigurationPage() {
     setStlGeometry(null);
     setGltfScene(null);
 
-    // Clear gripper state
-    setGripperEnabled(false);
+    // Reset to static tool type and clear gripper state
+    setToolType('static');
     setGripperIoPin(1);
     setGripperOpenIsHigh(true);
     setStlFileOpen(null);
@@ -661,8 +669,8 @@ export default function ConfigurationPage() {
         stl_data: base64Data,
       };
 
-      // Add gripper config if enabled
-      if (gripperEnabled) {
+      // Add gripper config if binary tool type
+      if (toolType === 'binary') {
         payload.gripper_config = {
           enabled: true,
           io_pin: gripperIoPin,
@@ -768,6 +776,13 @@ export default function ConfigurationPage() {
   useEffect(() => {
     loadTools();
   }, []);
+
+  // Preselect the active (mounted) tool when tools load
+  useEffect(() => {
+    if (tools.length > 0 && activeToolId && !selectedToolId && !isCreatingNew) {
+      loadToolIntoEditor(activeToolId);
+    }
+  }, [tools, activeToolId]);
 
   // Warn before leaving with unsaved changes
   useEffect(() => {
@@ -1072,9 +1087,17 @@ export default function ConfigurationPage() {
 
       <div className="flex-1 p-4 grid grid-cols-[400px_1fr] gap-4 overflow-hidden">
         {/* Left Panel - Tool List + Editor */}
-        <div className="space-y-3 overflow-auto">
-          {/* Tool Selector */}
-          <Card className="p-3">
+        <div className="overflow-auto">
+          <Tabs defaultValue="tools" className="w-full">
+            <TabsList className="w-full mb-3">
+              <TabsTrigger value="tools" className="flex-1">Tools</TabsTrigger>
+              <TabsTrigger value="robot" className="flex-1">Robot</TabsTrigger>
+              <TabsTrigger value="environment" className="flex-1" disabled>Environment</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="tools" className="space-y-3 mt-0">
+              {/* Tool Selector */}
+              <Card className="p-3">
             <div className="flex items-center gap-2">
               <div className="flex-1">
                 <label className="text-xs font-medium mb-1 block">Select Tool</label>
@@ -1135,11 +1158,42 @@ export default function ConfigurationPage() {
                     className="w-full h-8 px-2 text-sm bg-background border rounded"
                   />
                 </div>
+
+                {/* Tool Type Selector */}
+                <div>
+                  <label className="text-xs font-medium mb-1.5 block">Tool Type</label>
+                  <div className="flex gap-1">
+                    <Button
+                      variant={toolType === 'static' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setToolType('static')}
+                      className="flex-1 h-7 text-xs"
+                    >
+                      Static
+                    </Button>
+                    <Button
+                      variant={toolType === 'binary' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setToolType('binary')}
+                      className="flex-1 h-7 text-xs"
+                    >
+                      Binary
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      className="flex-1 h-7 text-xs opacity-50"
+                    >
+                      Variable <span className="text-[9px] ml-0.5">(Soon)</span>
+                    </Button>
+                  </div>
+                </div>
               </div>
 
             {/* Upload Area - Always visible when creating/editing */}
-            {/* Conditional STL Upload: Single or Dual based on gripper */}
-            {!gripperEnabled && (selectedToolId || isCreatingNew) && (
+            {/* Conditional STL Upload: Single or Dual based on tool type */}
+            {toolType === 'static' && (selectedToolId || isCreatingNew) && (
               <div
                 className={`
                   border-2 border-dashed rounded-lg p-4 text-center cursor-pointer
@@ -1168,8 +1222,8 @@ export default function ConfigurationPage() {
               </div>
             )}
 
-            {/* Dual STL Upload for Gripper */}
-            {gripperEnabled && (selectedToolId || isCreatingNew) && (
+            {/* Dual STL Upload for Binary tool type */}
+            {toolType === 'binary' && (selectedToolId || isCreatingNew) && (
               <div className="space-y-2">
                 <label className="text-xs font-medium block">Gripper State Meshes</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1283,8 +1337,8 @@ export default function ConfigurationPage() {
               </div>
             )}
 
-            {/* File Info */}
-            {fileInfo && !error && (
+            {/* File Info - Only for Static tools */}
+            {toolType === 'static' && fileInfo && !error && (
               <div className="mt-2 p-2 bg-card border rounded flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <FileIcon className="w-4 h-4 text-primary shrink-0" />
@@ -1464,46 +1518,36 @@ export default function ConfigurationPage() {
               </div>
             )}
 
-            {/* Gripper I/O Configuration */}
-            {(selectedToolId || isCreatingNew) && (
+            {/* Gripper I/O Configuration - Only shown for Binary tool type */}
+            {toolType === 'binary' && (selectedToolId || isCreatingNew) && (
               <div className="mt-2 p-2 bg-card border rounded">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium">Gripper I/O</label>
-                  <Switch
-                    checked={gripperEnabled}
-                    onCheckedChange={setGripperEnabled}
-                    className="scale-75"
-                  />
-                </div>
+                <label className="text-xs font-medium mb-1.5 block">Gripper I/O</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">I/O Pin</label>
+                    <Select value={gripperIoPin.toString()} onValueChange={(val) => setGripperIoPin(parseInt(val) as 1 | 2)}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">Output 1</SelectItem>
+                        <SelectItem value="2">Output 2</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                {gripperEnabled && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">I/O Pin</label>
-                      <Select value={gripperIoPin.toString()} onValueChange={(val) => setGripperIoPin(parseInt(val) as 1 | 2)}>
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Output 1</SelectItem>
-                          <SelectItem value="2">Output 2</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">Open State</label>
-                      <div className="h-7 flex items-center justify-center gap-1.5 bg-background border rounded px-2">
-                        <span className="text-[10px]">{gripperOpenIsHigh ? 'HIGH' : 'LOW'}</span>
-                        <Switch
-                          checked={gripperOpenIsHigh}
-                          onCheckedChange={setGripperOpenIsHigh}
-                          className="scale-75"
-                        />
-                      </div>
+                  <div>
+                    <label className="text-[9px] text-muted-foreground mb-0.5 block text-center">Open State</label>
+                    <div className="h-7 flex items-center justify-center gap-1.5 bg-background border rounded px-2">
+                      <span className="text-[10px]">{gripperOpenIsHigh ? 'HIGH' : 'LOW'}</span>
+                      <Switch
+                        checked={gripperOpenIsHigh}
+                        onCheckedChange={setGripperOpenIsHigh}
+                        className="scale-75"
+                      />
                     </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
 
@@ -1547,9 +1591,87 @@ export default function ConfigurationPage() {
               </div>
             </Card>
           )}
+            </TabsContent>
 
-          {/* Robot Appearance - Always visible */}
-          <Card className="p-3">
+            <TabsContent value="robot" className="space-y-3 mt-0">
+              {/* Robot Settings */}
+              <Card className="p-3">
+                <h2 className="text-base font-semibold mb-2">Robot Settings</h2>
+                <div className="space-y-3">
+                  {/* Default Speed */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-muted-foreground">Default Speed</label>
+                      <span className="text-[10px] text-muted-foreground">{config?.ui?.default_speed_percentage ?? 50}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={config?.ui?.default_speed_percentage ?? 50}
+                      onChange={(e) => {
+                        const { saveConfig } = useConfigStore.getState();
+                        saveConfig({
+                          ui: {
+                            ...config?.ui,
+                            default_speed_percentage: parseInt(e.target.value)
+                          }
+                        });
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* Default Acceleration */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-muted-foreground">Default Accel</label>
+                      <span className="text-[10px] text-muted-foreground">{config?.ui?.default_acceleration_percentage ?? 90}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={config?.ui?.default_acceleration_percentage ?? 90}
+                      onChange={(e) => {
+                        const { saveConfig } = useConfigStore.getState();
+                        saveConfig({
+                          ui: {
+                            ...config?.ui,
+                            default_acceleration_percentage: parseInt(e.target.value)
+                          }
+                        });
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* J2 Backlash Offset */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-muted-foreground">J2 Backlash Offset</label>
+                      <span className="text-[10px] text-muted-foreground">{j2BacklashOffset.toFixed(1)}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="0.1"
+                      value={j2BacklashOffset}
+                      onChange={(e) => setJ2BacklashOffset(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-[9px] text-muted-foreground mt-1">
+                      Offset applied from -3° to -90°, tapering to 0 between -90° and -100°. Requires API restart.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Robot Appearance */}
+              <Card className="p-3">
             <h2 className="text-base font-semibold mb-2">Robot Appearance</h2>
 
             <div className="space-y-2">
@@ -1653,6 +1775,10 @@ export default function ConfigurationPage() {
                 try {
                   const { saveConfig } = useConfigStore.getState();
                   await saveConfig({
+                    robot: {
+                      ...config?.robot,
+                      j2_backlash_offset: j2BacklashOffset
+                    },
                     ui: {
                       ...config?.ui,
                       hardware_robot: {
@@ -1666,16 +1792,17 @@ export default function ConfigurationPage() {
                     }
                   });
                 } catch (err) {
-                  logger.error('Error saving robot appearance', 'ConfigurationPage', { error: err });
+                  logger.error('Error saving robot settings', 'ConfigurationPage', { error: err });
                 }
               }}
               className="w-full h-8 mt-2"
               size="sm"
             >
-              Save Appearance
+              Save
             </Button>
           </Card>
-
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Right Panel - 3D Preview (React Three Fiber Canvas) */}

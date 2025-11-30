@@ -93,8 +93,14 @@ export default function PerformancePage() {
       const avgIkManip = group.reduce((sum, s) => sum + (s.ik_manipulability || 0), 0) / group.length;
       const avgIkSolve = group.reduce((sum, s) => sum + (s.ik_solve || 0), 0) / group.length;
 
+      // Use timestamp from first sample in group (convert ms to s)
+      const firstSample = group[0];
+      const time = firstSample.timestamp_ms !== undefined
+        ? firstSample.timestamp_ms / 1000
+        : (i / allSamples.length) * (selectedRecording.commands.reduce((sum, cmd) => sum + cmd.duration_s, 0));
+
       barData.push({
-        group: Math.floor(i / samplesPerBar),
+        time: Number(time.toFixed(2)),
         network: Number(avgNetwork.toFixed(2)),
         processing: Number(avgProcessing.toFixed(2)),
         execution: Number(avgExecution.toFixed(2)),
@@ -104,10 +110,13 @@ export default function PerformancePage() {
       });
     }
 
-    // Hz data - use captured Hz value from recording
+    // Hz data - use numeric timestamp for proper time axis
+    const totalDuration = selectedRecording.commands.reduce((sum, cmd) => sum + cmd.duration_s, 0);
     const hzData = allSamples.map((sample, idx) => ({
       index: idx,
-      progress: ((idx / allSamples.length) * 100).toFixed(0) + '%',
+      time: sample.timestamp_ms !== undefined
+        ? Number((sample.timestamp_ms / 1000).toFixed(2))
+        : Number(((idx / allSamples.length) * totalDuration).toFixed(2)),
       hz: sample.hz ?? 0,
     }));
 
@@ -164,66 +173,110 @@ export default function PerformancePage() {
 
   const { jointData: motionJointData } = processMotionRecordingForCharts();
 
-  // Handle recording selection
-  const handleRecordingSelect = (filename: string) => {
-    if (filename === 'none') {
+  // Build unified session list from both performance and motion recordings
+  // Sessions now share the same name (e.g., session_20251130_171500.json)
+  const unifiedSessions = (() => {
+    const sessionMap = new Map<string, { name: string; timestamp: string; hasPerf: boolean; hasMotion: boolean; perfFile: string | null; motionFile: string | null }>();
+
+    // Add performance recordings
+    recordings.forEach(rec => {
+      const baseName = rec.filename.replace('.json', '');
+      sessionMap.set(baseName, {
+        name: rec.name,
+        timestamp: rec.timestamp,
+        hasPerf: true,
+        hasMotion: false,
+        perfFile: rec.filename,
+        motionFile: null,
+      });
+    });
+
+    // Add/merge motion recordings
+    motionRecordings.forEach(rec => {
+      const baseName = rec.filename.replace('.json', '');
+      const existing = sessionMap.get(baseName);
+      if (existing) {
+        existing.hasMotion = true;
+        existing.motionFile = rec.filename;
+      } else {
+        sessionMap.set(baseName, {
+          name: rec.name,
+          timestamp: rec.timestamp,
+          hasPerf: false,
+          hasMotion: true,
+          perfFile: null,
+          motionFile: rec.filename,
+        });
+      }
+    });
+
+    // Sort by timestamp descending (newest first)
+    return Array.from(sessionMap.entries())
+      .sort((a, b) => new Date(b[1].timestamp).getTime() - new Date(a[1].timestamp).getTime());
+  })();
+
+  // Get currently selected session name
+  const selectedSessionName = selectedFilename?.replace('.json', '') || selectedMotionFilename?.replace('.json', '') || null;
+
+  // Handle unified session selection - load both performance and motion data
+  const handleSessionSelect = (sessionName: string) => {
+    if (sessionName === 'none') {
       selectRecording(null);
-    } else {
-      selectRecording(filename);
-    }
-  };
-
-  // Handle delete
-  const handleDelete = async () => {
-    if (!selectedFilename) return;
-
-    if (confirm(`Delete recording "${selectedFilename}"?`)) {
-      await deleteRecording(selectedFilename);
-    }
-  };
-
-  // Handle export
-  const handleExport = () => {
-    if (!selectedRecording || !selectedFilename) return;
-
-    const dataStr = JSON.stringify(selectedRecording, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = selectedFilename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Motion recording handlers
-  const handleMotionRecordingSelect = (filename: string) => {
-    if (filename === 'none') {
       selectMotionRecording(null);
     } else {
-      selectMotionRecording(filename);
+      const session = unifiedSessions.find(([name]) => name === sessionName);
+      if (session) {
+        const [, data] = session;
+        if (data.perfFile) selectRecording(data.perfFile);
+        else selectRecording(null);
+        if (data.motionFile) selectMotionRecording(data.motionFile);
+        else selectMotionRecording(null);
+      }
     }
   };
 
-  const handleMotionDelete = async () => {
-    if (!selectedMotionFilename) return;
+  // Handle delete - delete both files for the session
+  const handleDelete = async () => {
+    const session = unifiedSessions.find(([name]) => name === selectedSessionName);
+    if (!session) return;
 
-    if (confirm(`Delete motion recording "${selectedMotionFilename}"?`)) {
-      await deleteMotionRecording(selectedMotionFilename);
+    const [, data] = session;
+    if (confirm(`Delete session "${data.name}"? This will delete both performance and motion recordings.`)) {
+      if (data.perfFile) await deleteRecording(data.perfFile);
+      if (data.motionFile) await deleteMotionRecording(data.motionFile);
     }
   };
 
-  const handleMotionExport = () => {
-    if (!selectedMotionRecording || !selectedMotionFilename) return;
+  // Handle export - export both files
+  const handleExport = () => {
+    // Export performance recording
+    if (selectedRecording && selectedFilename) {
+      const dataStr = JSON.stringify(selectedRecording, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `perf_${selectedFilename}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+    // Export motion recording
+    if (selectedMotionRecording && selectedMotionFilename) {
+      const dataStr = JSON.stringify(selectedMotionRecording, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `motion_${selectedMotionFilename}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  };
 
-    const dataStr = JSON.stringify(selectedMotionRecording, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = selectedMotionFilename;
-    link.click();
-    URL.revokeObjectURL(url);
+  // Refresh both recording lists
+  const handleRefresh = () => {
+    fetchRecordings();
+    fetchMotionRecordings();
   };
 
   return (
@@ -314,35 +367,36 @@ export default function PerformancePage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => fetchRecordings()}
-              disabled={isLoadingRecordings}
+              onClick={handleRefresh}
+              disabled={isLoadingRecordings || isLoadingMotionRecordings}
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingRecordings ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-2 ${(isLoadingRecordings || isLoadingMotionRecordings) ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </div>
 
-          {/* Recording Selector */}
+          {/* Unified Session Selector */}
           <Card className="p-4">
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">Select Recording</label>
-                <Select value={selectedFilename || 'none'} onValueChange={handleRecordingSelect}>
+                <label className="text-sm font-medium mb-2 block">Select Recording Session</label>
+                <Select value={selectedSessionName || 'none'} onValueChange={handleSessionSelect}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Choose a recording..." />
+                    <SelectValue placeholder="Choose a recording session..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">None</SelectItem>
-                    {recordings.map((recording) => (
-                      <SelectItem key={recording.filename} value={recording.filename}>
-                        {recording.name} ({new Date(recording.timestamp).toLocaleString()}) - {recording.num_commands} commands
+                    {unifiedSessions.map(([sessionName, data]) => (
+                      <SelectItem key={sessionName} value={sessionName}>
+                        {data.name} ({new Date(data.timestamp).toLocaleString()})
+                        {data.hasPerf && data.hasMotion ? ' [Perf + Motion]' : data.hasPerf ? ' [Perf only]' : ' [Motion only]'}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {selectedFilename && (
+              {selectedSessionName && (
                 <div className="flex gap-2 pt-6">
                   <Button variant="outline" size="sm" onClick={handleExport}>
                     <Download className="h-4 w-4 mr-2" />
@@ -395,8 +449,9 @@ export default function PerformancePage() {
                   <BarChart data={barData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
-                      dataKey="group"
-                      label={{ value: 'Cycle Group', position: 'insideBottom', offset: -5 }}
+                      dataKey="time"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                      tickFormatter={(value) => value.toFixed(1)}
                     />
                     <YAxis
                       label={{ value: 'Time (ms)', angle: -90, position: 'insideLeft' }}
@@ -428,8 +483,9 @@ export default function PerformancePage() {
                   <LineChart data={recordingHzData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
-                      dataKey="progress"
-                      label={{ value: 'Progress', position: 'insideBottom', offset: -5 }}
+                      dataKey="time"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                      tickFormatter={(value) => value.toFixed(1)}
                     />
                     <YAxis
                       domain={[0, 120]}
@@ -499,58 +555,12 @@ export default function PerformancePage() {
 
         {/* Motion Comparison Section */}
         <div className="space-y-4 pt-4 border-t">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Motion Comparison</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fetchMotionRecordings()}
-              disabled={isLoadingMotionRecordings}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingMotionRecordings ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-          </div>
+          <h2 className="text-xl font-semibold">Motion Comparison</h2>
 
           <p className="text-sm text-muted-foreground">
             Compare commanded joint angles vs actual motor positions during timeline playback.
-            Motion recordings are captured automatically when executing on robot.
+            Select a recording session above to view motion data.
           </p>
-
-          {/* Motion Recording Selector */}
-          <Card className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">Select Motion Recording</label>
-                <Select value={selectedMotionFilename || 'none'} onValueChange={handleMotionRecordingSelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a motion recording..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {motionRecordings.map((recording) => (
-                      <SelectItem key={recording.filename} value={recording.filename}>
-                        {recording.name} ({new Date(recording.timestamp).toLocaleString()}) - {recording.duration_s.toFixed(1)}s
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedMotionFilename && (
-                <div className="flex gap-2 pt-6">
-                  <Button variant="outline" size="sm" onClick={handleMotionExport}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={handleMotionDelete}>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Button>
-                </div>
-              )}
-            </div>
-          </Card>
 
           {/* Joint Comparison Charts */}
           {selectedMotionRecording && motionJointData.length > 0 && (

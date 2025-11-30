@@ -16,6 +16,8 @@ export interface PerformanceSample {
   serial: number;
   ik_manipulability: number;
   ik_solve: number;
+  hz: number;
+  timestamp_ms: number;
 }
 
 export interface CycleStats {
@@ -70,6 +72,7 @@ export interface PerformanceStore {
   // Recording state
   isRecording: boolean;
   recordingName: string;
+  recordingArmed: boolean;  // Armed state - recording starts on timeline play
 
   // Recordings list
   recordings: RecordingListItem[];
@@ -83,6 +86,7 @@ export interface PerformanceStore {
   // Actions
   setIsRecording: (isRecording: boolean) => void;
   setRecordingName: (name: string) => void;
+  setRecordingArmed: (armed: boolean) => void;
 
   startRecording: (name?: string) => Promise<void>;
   stopRecording: () => Promise<void>;
@@ -97,6 +101,7 @@ export const usePerformanceStore = create<PerformanceStore>((set, get) => ({
   // Initial state
   isRecording: false,
   recordingName: '',
+  recordingArmed: false,
 
   recordings: [],
   isLoadingRecordings: false,
@@ -108,6 +113,7 @@ export const usePerformanceStore = create<PerformanceStore>((set, get) => ({
   // Actions
   setIsRecording: (isRecording) => set({ isRecording }),
   setRecordingName: (recordingName) => set({ recordingName }),
+  setRecordingArmed: (recordingArmed) => set({ recordingArmed }),
 
   startRecording: async () => {
     try {
@@ -144,7 +150,7 @@ export const usePerformanceStore = create<PerformanceStore>((set, get) => ({
       const data = await response.json();
 
       if (data.success) {
-        set({ isRecording: false });
+        set({ isRecording: false, recordingArmed: false });
         // Refresh recordings list
         get().fetchRecordings();
       } else {

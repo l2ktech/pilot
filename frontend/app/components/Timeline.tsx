@@ -321,6 +321,7 @@ export default function Timeline({ availableTools }: TimelineProps) {
   const timeline = useTimelineStore((state) => state.timeline);
   const playbackState = useTimelineStore((state) => state.playbackState);
   const setLoopIterations = useTimelineStore((state) => state.setLoopIterations);
+  const isCalculatingTrajectory = useTimelineStore((state) => state.ikProgress.isCalculating);
 
   // Get commanded state for recording
   const commandedJointAngles = useCommandStore((state) => state.commandedJointAngles);
@@ -332,9 +333,137 @@ export default function Timeline({ availableTools }: TimelineProps) {
   const ikAxisMask = useRobotConfigStore((state) => state.ikAxisMask);
 
   // Pre-playback positioning hook
-  const { moveToStartAndPlay, isMovingToStart, moveError, clearError } = usePrePlaybackPosition();
+  const { moveToStartAndPlay, isMovingToStart, isQueueingCommands, moveError, clearError } = usePrePlaybackPosition();
 
   const [recordError, setRecordError] = useState<string | null>(null);
+
+  // Get trajectory cache to check for missing trajectories
+  const trajectoryCache = useTimelineStore((state) => state.trajectoryCache);
+
+  // Auto-calculate trajectories for cartesian segments that are missing from cache
+  // This runs when keyframes change (e.g., after import) and ensures all cartesian segments have trajectories
+  useEffect(() => {
+    if (!computationRobotRef || keyframes.length < 2) return;
+
+    const calculateMissingTrajectories = async () => {
+      const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+      const loopIterations = timeline.loopIterations || 1;
+      let calculatedCount = 0;
+
+      for (let i = 0; i < sortedKeyframes.length - 1; i++) {
+        const prevKeyframe = sortedKeyframes[i];
+        const currKeyframe = sortedKeyframes[i + 1];
+
+        // Only process cartesian segments with valid poses and joint angles
+        if (currKeyframe.motionType !== 'cartesian') continue;
+        if (!prevKeyframe.cartesianPose || !currKeyframe.cartesianPose) continue;
+        if (!prevKeyframe.jointAngles) continue;
+
+        const baseCacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
+
+        // Skip if trajectory already cached
+        if (trajectoryCache.has(baseCacheKey)) continue;
+
+        logger.info(`Calculating missing trajectory for ${baseCacheKey}`, 'Timeline');
+        calculatedCount++;
+
+        const duration = currKeyframe.time - prevKeyframe.time;
+        const segmentTool = getToolForSegment(prevKeyframe, availableTools, computationTool);
+
+        // Pre-calculate base trajectory
+        const result = await preCalculateCartesianTrajectory(
+          prevKeyframe.cartesianPose,
+          currKeyframe.cartesianPose,
+          prevKeyframe.jointAngles,
+          duration,
+          computationRobotRef,
+          segmentTool,
+          ikAxisMask
+        );
+
+        if (result.waypointPoses && result.waypointJoints && result.ikValid) {
+          const dependencyData = JSON.stringify({
+            tcpOffset: tcpOffset,
+            ikAxisMask: ikAxisMask,
+            startPose: prevKeyframe.cartesianPose,
+            endPose: currKeyframe.cartesianPose,
+            duration: duration
+          });
+
+          // Cache base trajectory
+          setCachedTrajectory(baseCacheKey, {
+            waypointPoses: result.waypointPoses,
+            waypointJoints: result.waypointJoints,
+            ikValid: result.ikValid,
+            dependencyHash: dependencyData,
+            computedAt: Date.now()
+          });
+
+          logger.debug(`Cached trajectory for ${baseCacheKey}: ${result.waypointPoses.length} waypoints`, 'Timeline');
+
+          // Pre-calculate loop iterations if applicable
+          if (loopIterations > 1 && (prevKeyframe.loopDeltas || currKeyframe.loopDeltas)) {
+            for (let loop = 1; loop < loopIterations; loop++) {
+              const loopCacheKey = `${baseCacheKey}_loop${loop}`;
+              const loopAdjustedPoses: CartesianPose[] = [];
+              const loopAdjustedJoints: JointAngles[] = [];
+              const loopIkValid: boolean[] = [];
+
+              for (let j = 0; j < result.waypointPoses.length; j++) {
+                const basePose = result.waypointPoses[j];
+                const t = j / (result.waypointPoses.length - 1);
+
+                const startDeltas = prevKeyframe.loopDeltas || {};
+                const endDeltas = currKeyframe.loopDeltas || {};
+
+                const adjustedPose: CartesianPose = {
+                  X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
+                  Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
+                  Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
+                  RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
+                  RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
+                  RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
+                };
+
+                loopAdjustedPoses.push(adjustedPose);
+
+                const seed = j === 0 ? result.waypointJoints[0] : loopAdjustedJoints[j - 1];
+                const ikResult = inverseKinematicsDetailed(
+                  adjustedPose,
+                  seed,
+                  computationRobotRef,
+                  segmentTool,
+                  ikAxisMask
+                );
+
+                if (ikResult.success && ikResult.jointAngles) {
+                  loopAdjustedJoints.push(ikResult.jointAngles);
+                  loopIkValid.push(true);
+                } else {
+                  loopAdjustedJoints.push(seed);
+                  loopIkValid.push(false);
+                }
+              }
+
+              setCachedTrajectory(loopCacheKey, {
+                waypointPoses: loopAdjustedPoses,
+                waypointJoints: loopAdjustedJoints,
+                ikValid: loopIkValid,
+                dependencyHash: dependencyData,
+                computedAt: Date.now()
+              });
+            }
+          }
+        }
+      }
+
+      if (calculatedCount > 0) {
+        logger.info(`Calculated ${calculatedCount} missing cartesian trajectories`, 'Timeline');
+      }
+    };
+
+    calculateMissingTrajectories();
+  }, [keyframes, trajectoryCache, timeline.loopIterations, computationRobotRef, availableTools, computationTool, ikAxisMask, tcpOffset, setCachedTrajectory]);
 
   // Helper function to detect property changes between consecutive keyframes
   const detectPropertyChanges = (sortedKeyframes: any[]) => {
@@ -922,121 +1051,8 @@ export default function Timeline({ availableTools }: TimelineProps) {
           const text = await file.text();
           const timeline = JSON.parse(text);
           loadTimeline(timeline);
-
-          // Pre-calculate trajectories for all cartesian segments after import
-          // Use setTimeout to ensure loadTimeline has updated the store
-          setTimeout(async () => {
-            if (!computationRobotRef) {
-              logger.warn('Cannot pre-calculate trajectories: computation robot not loaded', 'Timeline');
-              return;
-            }
-
-            const loadedKeyframes = timeline.keyframes || [];
-            const sortedKeyframes = [...loadedKeyframes].sort((a: any, b: any) => a.time - b.time);
-            const loopIterations = timeline.loopIterations || 1;
-
-            for (let i = 0; i < sortedKeyframes.length - 1; i++) {
-              const prevKeyframe = sortedKeyframes[i];
-              const currKeyframe = sortedKeyframes[i + 1];
-
-              // Only process cartesian segments with valid poses
-              if (currKeyframe.motionType !== 'cartesian') continue;
-              if (!prevKeyframe.cartesianPose || !currKeyframe.cartesianPose) continue;
-
-              const duration = currKeyframe.time - prevKeyframe.time;
-              const segmentTool = getToolForSegment(prevKeyframe, availableTools, computationTool);
-
-              // Pre-calculate base trajectory
-              const result = await preCalculateCartesianTrajectory(
-                prevKeyframe.cartesianPose,
-                currKeyframe.cartesianPose,
-                prevKeyframe.jointAngles,
-                duration,
-                computationRobotRef,
-                segmentTool,
-                ikAxisMask
-              );
-
-              if (result.waypointPoses && result.waypointJoints && result.ikValid) {
-                const baseCacheKey = `${prevKeyframe.id}_${currKeyframe.id}`;
-
-                const dependencyData = JSON.stringify({
-                  tcpOffset: tcpOffset,
-                  ikAxisMask: ikAxisMask,
-                  startPose: prevKeyframe.cartesianPose,
-                  endPose: currKeyframe.cartesianPose,
-                  duration: duration
-                });
-
-                // Cache base trajectory
-                setCachedTrajectory(baseCacheKey, {
-                  waypointPoses: result.waypointPoses,
-                  waypointJoints: result.waypointJoints,
-                  ikValid: result.ikValid,
-                  dependencyHash: dependencyData,
-                  computedAt: Date.now()
-                });
-
-                logger.debug(`Cached imported trajectory for ${baseCacheKey}: ${result.waypointPoses.length} waypoints`, 'Timeline');
-
-                // Pre-calculate loop iterations if applicable
-                if (loopIterations > 1 && (prevKeyframe.loopDeltas || currKeyframe.loopDeltas)) {
-                  for (let loop = 1; loop < loopIterations; loop++) {
-                    const loopCacheKey = `${baseCacheKey}_loop${loop}`;
-                    const loopAdjustedPoses: CartesianPose[] = [];
-                    const loopAdjustedJoints: JointAngles[] = [];
-                    const loopIkValid: boolean[] = [];
-
-                    for (let j = 0; j < result.waypointPoses.length; j++) {
-                      const basePose = result.waypointPoses[j];
-                      const t = j / (result.waypointPoses.length - 1);
-
-                      const startDeltas = prevKeyframe.loopDeltas || {};
-                      const endDeltas = currKeyframe.loopDeltas || {};
-
-                      const adjustedPose: CartesianPose = {
-                        X: basePose.X + ((startDeltas.X || 0) * (1 - t) + (endDeltas.X || 0) * t) * loop,
-                        Y: basePose.Y + ((startDeltas.Y || 0) * (1 - t) + (endDeltas.Y || 0) * t) * loop,
-                        Z: basePose.Z + ((startDeltas.Z || 0) * (1 - t) + (endDeltas.Z || 0) * t) * loop,
-                        RX: basePose.RX + ((startDeltas.RX || 0) * (1 - t) + (endDeltas.RX || 0) * t) * loop,
-                        RY: basePose.RY + ((startDeltas.RY || 0) * (1 - t) + (endDeltas.RY || 0) * t) * loop,
-                        RZ: basePose.RZ + ((startDeltas.RZ || 0) * (1 - t) + (endDeltas.RZ || 0) * t) * loop
-                      };
-
-                      loopAdjustedPoses.push(adjustedPose);
-
-                      const seed = j === 0 ? result.waypointJoints[0] : loopAdjustedJoints[j - 1];
-                      const ikResult = inverseKinematicsDetailed(
-                        adjustedPose,
-                        seed,
-                        computationRobotRef,
-                        segmentTool,
-                        ikAxisMask
-                      );
-
-                      if (ikResult.success && ikResult.jointAngles) {
-                        loopAdjustedJoints.push(ikResult.jointAngles);
-                        loopIkValid.push(true);
-                      } else {
-                        loopAdjustedJoints.push(seed);
-                        loopIkValid.push(false);
-                      }
-                    }
-
-                    setCachedTrajectory(loopCacheKey, {
-                      waypointPoses: loopAdjustedPoses,
-                      waypointJoints: loopAdjustedJoints,
-                      ikValid: loopIkValid,
-                      dependencyHash: dependencyData,
-                      computedAt: Date.now()
-                    });
-                  }
-                }
-              }
-            }
-
-            logger.info('Pre-calculated trajectories for imported timeline', 'Timeline');
-          }, 0);
+          // Trajectory calculation for cartesian segments is handled automatically
+          // by the useEffect that watches keyframes and calculates missing trajectories
         }
       };
       input.click();
@@ -1325,24 +1341,24 @@ export default function Timeline({ availableTools }: TimelineProps) {
 
         <button
           onClick={moveToStartAndPlay}
-          disabled={isMovingToStart}
+          disabled={isMovingToStart || isQueueingCommands || isCalculatingTrajectory}
           className="button material-icons"
           style={{
             padding: '0px',
             width: '44px',
             minWidth: '44px',
             marginRight: '5px',
-            color: isMovingToStart ? '#ff9800' : '#4caf50',
+            color: isCalculatingTrajectory ? '#2196f3' : (isMovingToStart || isQueueingCommands ? '#ff9800' : '#4caf50'),
             background: 'transparent',
             border: 'none',
-            cursor: isMovingToStart ? 'wait' : 'pointer',
-            opacity: isMovingToStart ? 0.7 : 1
+            cursor: (isMovingToStart || isQueueingCommands || isCalculatingTrajectory) ? 'wait' : 'pointer',
+            opacity: (isMovingToStart || isQueueingCommands || isCalculatingTrajectory) ? 0.7 : 1
           }}
-          title={isMovingToStart ? 'Moving to start position...' : 'Play Execute (Send to Robot)'}
-          onMouseOver={(e) => { if (!isMovingToStart) e.currentTarget.style.background = '#201616' }}
+          title={isCalculatingTrajectory ? 'Calculating trajectories...' : (isQueueingCommands ? 'Queueing commands...' : (isMovingToStart ? 'Moving to start position...' : 'Play Execute (Send to Robot)'))}
+          onMouseOver={(e) => { if (!isMovingToStart && !isQueueingCommands && !isCalculatingTrajectory) e.currentTarget.style.background = '#201616' }}
           onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          {isMovingToStart ? 'hourglass_empty' : 'send'}
+          {isCalculatingTrajectory ? 'hourglass_empty' : ((isMovingToStart || isQueueingCommands) ? 'hourglass_empty' : 'send')}
         </button>
 
         <button

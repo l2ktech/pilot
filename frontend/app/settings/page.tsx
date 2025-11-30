@@ -14,10 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Slider } from '@/components/ui/slider';
 import { Save, RotateCcw, AlertCircle, Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useConfigStore, Config } from '../lib/configStore';
-import { useCommandStore, useHardwareStore } from '../lib/stores';
 import { getApiBaseUrl } from '../lib/apiConfig';
 import { JOINT_LIMITS } from '../lib/constants';
 import { logger } from '../lib/logger';
@@ -33,14 +31,6 @@ export default function SettingsPage() {
   // Saved position editor state
   const [editingPosition, setEditingPosition] = useState<{ index: number; name: string; joints: number[] } | null>(null);
   const [isAddingPosition, setIsAddingPosition] = useState(false);
-
-  // Runtime controls
-  const accel = useCommandStore((state) => state.accel);
-  const setAccel = useCommandStore((state) => state.setAccel);
-
-  // Hardware status
-  const ioStatus = useHardwareStore((state) => state.ioStatus);
-  const gripperStatus = useHardwareStore((state) => state.gripperStatus);
 
   // Fetch config on mount
   useEffect(() => {
@@ -273,54 +263,6 @@ export default function SettingsPage() {
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Basic Settings</h2>
             <div className="space-y-4">
-              {/* Default Speed Percentage */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Default Speed %</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={localConfig.ui.default_speed_percentage}
-                  onChange={(e) =>
-                    updateConfig(['ui', 'default_speed_percentage'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Default Acceleration Percentage */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Default Accel %</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={localConfig.ui.default_acceleration_percentage}
-                  onChange={(e) =>
-                    updateConfig(['ui', 'default_acceleration_percentage'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Runtime Acceleration Control */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Current Accel %</Label>
-                <div className="col-span-2 flex items-center gap-2">
-                  <Slider
-                    value={[accel]}
-                    onValueChange={(value) => setAccel(value[0])}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="flex-1"
-                  />
-                  <span className="text-sm text-muted-foreground w-12 text-right">
-                    {accel}%
-                  </span>
-                </div>
-              </div>
-
               {/* Step Angle */}
               <div className="grid grid-cols-3 items-center gap-4">
                 <Label>Step Angle (degrees)</Label>
@@ -505,111 +447,161 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* WebSocket Settings */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">WebSocket Settings</h2>
-            <div className="space-y-4">
-              {/* Default Rate */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Update Rate (Hz)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={localConfig.frontend.websocket.default_rate_hz}
-                  onChange={(e) =>
-                    updateConfig(['frontend', 'websocket', 'default_rate_hz'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Max Reconnect Attempts */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Max Reconnect Attempts</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={localConfig.frontend.websocket.reconnect.max_attempts}
-                  onChange={(e) =>
-                    updateConfig(['frontend', 'websocket', 'reconnect', 'max_attempts'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Reconnect Delay */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Reconnect Delay (ms)</Label>
-                <Input
-                  type="number"
-                  min="100"
-                  max="10000"
-                  step="100"
-                  value={localConfig.frontend.websocket.reconnect.base_delay_ms}
-                  onChange={(e) =>
-                    updateConfig(['frontend', 'websocket', 'reconnect', 'base_delay_ms'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
+          {/* Advanced Settings */}
+          <Card className="p-6 border-yellow-500/50">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5" />
+              <div>
+                <h2 className="text-xl font-semibold">Advanced Settings</h2>
+                <p className="text-sm text-yellow-600 dark:text-yellow-500">
+                  Changes to these settings require restarting the backend server or frontend
+                </p>
               </div>
             </div>
-          </Card>
+            <div className="space-y-6">
+              {/* Robot Settings */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground border-b pb-2">Robot</h3>
+                {/* COM Port */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>COM Port</Label>
+                  {loadingPorts ? (
+                    <div className="col-span-2 flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">Scanning ports...</span>
+                    </div>
+                  ) : availablePorts.length > 0 ? (
+                    <Select
+                      value={localConfig.robot.com_port}
+                      onValueChange={(value) => updateConfig(['robot', 'com_port'], value)}
+                    >
+                      <SelectTrigger className="col-span-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availablePorts.map((port) => {
+                          const portValue = typeof port === 'string' ? port : port.device;
+                          const portLabel = typeof port === 'string' ? port : `${port.device} - ${port.description}`;
+                          return (
+                            <SelectItem key={portValue} value={portValue}>
+                              {portLabel}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={localConfig.robot.com_port}
+                      onChange={(e) => updateConfig(['robot', 'com_port'], e.target.value)}
+                      placeholder="No ports detected - enter manually"
+                      className="col-span-2"
+                    />
+                  )}
+                </div>
 
-          {/* Logging Settings */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Logging Settings</h2>
-            <div className="space-y-4">
-              {/* Commander Log Level */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Commander Log Level</Label>
-                <Select
-                  value={localConfig.logging.commander?.level || 'INFO'}
-                  onValueChange={(value) => updateConfig(['logging', 'commander', 'level'], value)}
-                >
-                  <SelectTrigger className="col-span-2">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DEBUG">DEBUG</SelectItem>
-                    <SelectItem value="INFO">INFO</SelectItem>
-                    <SelectItem value="WARNING">WARNING</SelectItem>
-                    <SelectItem value="ERROR">ERROR</SelectItem>
-                    <SelectItem value="CRITICAL">CRITICAL</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Baud Rate */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Baud Rate</Label>
+                  <Input
+                    type="number"
+                    value={localConfig.robot.baud_rate}
+                    onChange={(e) =>
+                      updateConfig(['robot', 'baud_rate'], parseInt(e.target.value))
+                    }
+                    className="col-span-2"
+                  />
+                </div>
+
+                {/* Auto Home on Startup */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Auto Home on Startup</Label>
+                  <div className="col-span-2 flex items-center">
+                    <Checkbox
+                      checked={localConfig.robot.auto_home_on_startup}
+                      onCheckedChange={(checked) =>
+                        updateConfig(['robot', 'auto_home_on_startup'], checked)
+                      }
+                    />
+                  </div>
+                </div>
+
               </div>
 
-              {/* API Log Level */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>API Log Level</Label>
-                <Select
-                  value={localConfig.logging.api?.level || 'INFO'}
-                  onValueChange={(value) => updateConfig(['logging', 'api', 'level'], value)}
-                >
-                  <SelectTrigger className="col-span-2">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DEBUG">DEBUG</SelectItem>
-                    <SelectItem value="INFO">INFO</SelectItem>
-                    <SelectItem value="WARNING">WARNING</SelectItem>
-                    <SelectItem value="ERROR">ERROR</SelectItem>
-                    <SelectItem value="CRITICAL">CRITICAL</SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* API Settings */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground border-b pb-2">API</h3>
+                {/* API Port */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>API Port</Label>
+                  <Input
+                    type="number"
+                    min="1024"
+                    max="65535"
+                    value={localConfig.api.port}
+                    onChange={(e) => updateConfig(['api', 'port'], parseInt(e.target.value))}
+                    className="col-span-2"
+                  />
+                </div>
+
+                {/* WebSocket Update Rate */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Update Rate (Hz)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={localConfig.frontend.websocket.default_rate_hz}
+                    onChange={(e) =>
+                      updateConfig(['frontend', 'websocket', 'default_rate_hz'], parseInt(e.target.value))
+                    }
+                    className="col-span-2"
+                  />
+                </div>
+
+                {/* Max Reconnect Attempts */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Max Reconnect Attempts</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={localConfig.frontend.websocket.reconnect.max_attempts}
+                    onChange={(e) =>
+                      updateConfig(['frontend', 'websocket', 'reconnect', 'max_attempts'], parseInt(e.target.value))
+                    }
+                    className="col-span-2"
+                  />
+                </div>
+
+                {/* Reconnect Delay */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Reconnect Delay (ms)</Label>
+                  <Input
+                    type="number"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={localConfig.frontend.websocket.reconnect.base_delay_ms}
+                    onChange={(e) =>
+                      updateConfig(['frontend', 'websocket', 'reconnect', 'base_delay_ms'], parseInt(e.target.value))
+                    }
+                    className="col-span-2"
+                  />
+                </div>
               </div>
 
-              {/* Frontend Log Level */}
-              <div className="grid grid-cols-3 items-start gap-4">
-                <Label>Frontend Log Level</Label>
-                <div className="col-span-2 space-y-2">
+              {/* Logging Settings */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground border-b pb-2">Logging</h3>
+                {/* Commander Log Level */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Commander Log Level</Label>
                   <Select
-                    value={localConfig.logging.frontend?.level || 'DEBUG'}
-                    onValueChange={(value) => updateConfig(['logging', 'frontend', 'level'], value)}
+                    value={localConfig.logging.commander?.level || 'INFO'}
+                    onValueChange={(value) => updateConfig(['logging', 'commander', 'level'], value)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="col-span-2">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -620,132 +612,78 @@ export default function SettingsPage() {
                       <SelectItem value="CRITICAL">CRITICAL</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Reload frontend page after saving to apply changes
-                  </p>
                 </div>
-              </div>
 
-              {/* Buffer Size */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Buffer Size</Label>
-                <Input
-                  type="number"
-                  min="100"
-                  max="10000"
-                  step="100"
-                  value={localConfig.logging.buffer_size}
-                  onChange={(e) =>
-                    updateConfig(['logging', 'buffer_size'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Initial Log Count */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Initial Log Count</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="1000"
-                  value={localConfig.logging.initial_log_count}
-                  onChange={(e) =>
-                    updateConfig(['logging', 'initial_log_count'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-            </div>
-          </Card>
-
-          {/* Advanced Settings */}
-          <Card className="p-6 border-yellow-500/50">
-            <div className="flex items-start gap-3 mb-4">
-              <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5" />
-              <div>
-                <h2 className="text-xl font-semibold">Advanced Settings</h2>
-                <p className="text-sm text-yellow-600 dark:text-yellow-500">
-                  Changes to these settings require restarting the backend server
-                </p>
-              </div>
-            </div>
-            <div className="space-y-4">
-              {/* COM Port */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>COM Port</Label>
-                {loadingPorts ? (
-                  <div className="col-span-2 flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Scanning ports...</span>
-                  </div>
-                ) : availablePorts.length > 0 ? (
+                {/* API Log Level */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>API Log Level</Label>
                   <Select
-                    value={localConfig.robot.com_port}
-                    onValueChange={(value) => updateConfig(['robot', 'com_port'], value)}
+                    value={localConfig.logging.api?.level || 'INFO'}
+                    onValueChange={(value) => updateConfig(['logging', 'api', 'level'], value)}
                   >
                     <SelectTrigger className="col-span-2">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {availablePorts.map((port) => {
-                        const portValue = typeof port === 'string' ? port : port.device;
-                        const portLabel = typeof port === 'string' ? port : `${port.device} - ${port.description}`;
-                        return (
-                          <SelectItem key={portValue} value={portValue}>
-                            {portLabel}
-                          </SelectItem>
-                        );
-                      })}
+                      <SelectItem value="DEBUG">DEBUG</SelectItem>
+                      <SelectItem value="INFO">INFO</SelectItem>
+                      <SelectItem value="WARNING">WARNING</SelectItem>
+                      <SelectItem value="ERROR">ERROR</SelectItem>
+                      <SelectItem value="CRITICAL">CRITICAL</SelectItem>
                     </SelectContent>
                   </Select>
-                ) : (
+                </div>
+
+                {/* Frontend Log Level */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Frontend Log Level</Label>
+                  <Select
+                    value={localConfig.logging.frontend?.level || 'DEBUG'}
+                    onValueChange={(value) => updateConfig(['logging', 'frontend', 'level'], value)}
+                  >
+                    <SelectTrigger className="col-span-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DEBUG">DEBUG</SelectItem>
+                      <SelectItem value="INFO">INFO</SelectItem>
+                      <SelectItem value="WARNING">WARNING</SelectItem>
+                      <SelectItem value="ERROR">ERROR</SelectItem>
+                      <SelectItem value="CRITICAL">CRITICAL</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Buffer Size */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Log Buffer Size</Label>
                   <Input
-                    value={localConfig.robot.com_port}
-                    onChange={(e) => updateConfig(['robot', 'com_port'], e.target.value)}
-                    placeholder="No ports detected - enter manually"
+                    type="number"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={localConfig.logging.buffer_size}
+                    onChange={(e) =>
+                      updateConfig(['logging', 'buffer_size'], parseInt(e.target.value))
+                    }
                     className="col-span-2"
                   />
-                )}
-              </div>
+                </div>
 
-              {/* Baud Rate */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Baud Rate</Label>
-                <Input
-                  type="number"
-                  value={localConfig.robot.baud_rate}
-                  onChange={(e) =>
-                    updateConfig(['robot', 'baud_rate'], parseInt(e.target.value))
-                  }
-                  className="col-span-2"
-                />
-              </div>
-
-              {/* Auto Home on Startup */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>Auto Home on Startup</Label>
-                <div className="col-span-2 flex items-center">
-                  <Checkbox
-                    checked={localConfig.robot.auto_home_on_startup}
-                    onCheckedChange={(checked) =>
-                      updateConfig(['robot', 'auto_home_on_startup'], checked)
+                {/* Initial Log Count */}
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label>Initial Log Count</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="1000"
+                    value={localConfig.logging.initial_log_count}
+                    onChange={(e) =>
+                      updateConfig(['logging', 'initial_log_count'], parseInt(e.target.value))
                     }
+                    className="col-span-2"
                   />
                 </div>
-              </div>
-
-              {/* API Port */}
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label>API Port</Label>
-                <Input
-                  type="number"
-                  min="1024"
-                  max="65535"
-                  value={localConfig.api.port}
-                  onChange={(e) => updateConfig(['api', 'port'], parseInt(e.target.value))}
-                  className="col-span-2"
-                />
               </div>
             </div>
           </Card>

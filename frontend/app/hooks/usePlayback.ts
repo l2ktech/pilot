@@ -4,7 +4,7 @@ import { useCommandStore } from '@/app/lib/stores/commandStore';
 import { useRobotConfigStore } from '@/app/lib/stores/robotConfigStore';
 import { useKinematicsStore } from '@/app/lib/stores/kinematicsStore';
 import { useInputStore } from '@/app/lib/stores/inputStore';
-import { useMotionRecordingStore } from '@/app/lib/stores/motionRecordingStore';
+import { usePerformanceStore } from '@/app/lib/stores/performanceStore';
 import { getJointAnglesAtTime, getCartesianPoseAtTime, shouldUseCartesianInterpolation, getGripperStateAtTime } from '@/app/lib/interpolation';
 import { inverseKinematicsDetailed } from '@/app/lib/kinematics';
 import { DEFAULT_FPS } from '@/app/lib/constants';
@@ -15,6 +15,227 @@ import { getToolAtTime } from '@/app/lib/toolHelpers';
 import { JointAngles, CartesianPose, Tool } from '@/app/lib/types';
 import { logger } from '@/app/lib/logger';
 import { applyLoopDeltasToKeyframe } from '@/app/lib/loopVariables';
+import { Keyframe, CachedTrajectory } from '@/app/lib/stores/timelineStore';
+
+/**
+ * Send all timeline commands to the commander queue upfront.
+ *
+ * This replaces the streaming approach (sending commands as keyframes are crossed)
+ * with a more robust batch approach where all commands are queued at once.
+ *
+ * @param keyframes - Timeline keyframes (should be sorted by time)
+ * @param trajectoryCache - Cache of pre-calculated cartesian trajectories
+ * @param loopIteration - Current loop iteration (0-indexed)
+ * @returns Result with success status and command count
+ */
+export async function sendAllTimelineCommands(
+  keyframes: Keyframe[],
+  trajectoryCache: Map<string, CachedTrajectory>,
+  loopIteration: number = 0
+): Promise<{ success: boolean; commandCount: number; error?: string }> {
+  const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+  let commandCount = 0;
+
+  logger.info(`Queueing ${sortedKeyframes.length - 1} segments (loop ${loopIteration})`, 'sendAllTimelineCommands');
+
+  for (let i = 0; i < sortedKeyframes.length - 1; i++) {
+    const current = sortedKeyframes[i];
+    const next = sortedKeyframes[i + 1];
+    const duration = next.time - current.time;
+
+    // Send I/O commands at segment start (if defined)
+    if (current.output_1 !== undefined) {
+      try {
+        await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ output: 1, state: current.output_1, wait_for_ack: false })
+        });
+      } catch (err) {
+        logger.error(`Failed to set output_1 at segment ${i}`, 'sendAllTimelineCommands', err);
+      }
+    }
+    if (current.output_2 !== undefined) {
+      try {
+        await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ output: 2, state: current.output_2, wait_for_ack: false })
+        });
+      } catch (err) {
+        logger.error(`Failed to set output_2 at segment ${i}`, 'sendAllTimelineCommands', err);
+      }
+    }
+
+    // Send motion command
+    if (next.motionType === 'cartesian' && next.cartesianPose) {
+      // Cartesian motion - use cached trajectory
+      const baseCacheKey = `${current.id}_${next.id}`;
+      const cacheKey = loopIteration > 0 ? `${baseCacheKey}_loop${loopIteration}` : baseCacheKey;
+      const cached = trajectoryCache.get(cacheKey);
+
+      if (!cached) {
+        logger.error(`Missing trajectory cache for segment ${i}`, 'sendAllTimelineCommands', { cacheKey });
+        return {
+          success: false,
+          commandCount,
+          error: `Missing trajectory cache for segment ${i}: ${cacheKey}. Toggle cartesian mode to recalculate.`
+        };
+      }
+
+      // Check if any waypoints failed IK
+      const anyFailed = cached.ikValid?.some(valid => !valid);
+      if (anyFailed) {
+        const failedIndex = cached.ikValid?.findIndex(valid => !valid) ?? -1;
+        return {
+          success: false,
+          commandCount,
+          error: `Segment ${i} has failed IK at waypoint ${failedIndex}. Edit keyframe to fix.`
+        };
+      }
+
+      const trajectory = cached.waypointJoints.map(joints => [
+        joints.J1, joints.J2, joints.J3, joints.J4, joints.J5, joints.J6
+      ]);
+
+      try {
+        const result = await executeTrajectory({
+          trajectory,
+          duration,
+          wait_for_ack: false
+        });
+
+        if (!result.success) {
+          logger.error(`Failed to queue trajectory for segment ${i}`, 'sendAllTimelineCommands', result);
+          return {
+            success: false,
+            commandCount,
+            error: `Failed to queue trajectory for segment ${i}: ${result.message}`
+          };
+        }
+      } catch (err) {
+        logger.error(`Error queueing trajectory for segment ${i}`, 'sendAllTimelineCommands', err);
+        return {
+          success: false,
+          commandCount,
+          error: `Error queueing trajectory for segment ${i}: ${err}`
+        };
+      }
+    } else {
+      // Joint motion
+      const targetAngles = next.jointAngles;
+      if (!targetAngles) {
+        logger.error(`Missing joint angles for segment ${i}`, 'sendAllTimelineCommands');
+        return {
+          success: false,
+          commandCount,
+          error: `Missing joint angles for segment ${i}`
+        };
+      }
+
+      try {
+        const result = await moveJoints(targetAngles, undefined, duration);
+        if (!result.success) {
+          logger.error(`Failed to queue joint move for segment ${i}`, 'sendAllTimelineCommands', result);
+          return {
+            success: false,
+            commandCount,
+            error: `Failed to queue joint move for segment ${i}: ${result.error}`
+          };
+        }
+      } catch (err) {
+        logger.error(`Error queueing joint move for segment ${i}`, 'sendAllTimelineCommands', err);
+        return {
+          success: false,
+          commandCount,
+          error: `Error queueing joint move for segment ${i}: ${err}`
+        };
+      }
+    }
+
+    commandCount++;
+  }
+
+  // Final keyframe I/O (at the end of timeline)
+  const last = sortedKeyframes[sortedKeyframes.length - 1];
+  if (last && last.output_1 !== undefined) {
+    try {
+      await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output: 1, state: last.output_1, wait_for_ack: false })
+      });
+    } catch (err) {
+      logger.error('Failed to set final output_1', 'sendAllTimelineCommands', err);
+    }
+  }
+  if (last && last.output_2 !== undefined) {
+    try {
+      await fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output: 2, state: last.output_2, wait_for_ack: false })
+      });
+    } catch (err) {
+      logger.error('Failed to set final output_2', 'sendAllTimelineCommands', err);
+    }
+  }
+
+  logger.info(`Successfully queued ${commandCount} commands`, 'sendAllTimelineCommands');
+  return { success: true, commandCount };
+}
+
+/**
+ * Validate timeline before queueing commands.
+ *
+ * Checks:
+ * - Segment count within queue limits
+ * - All cartesian segments have cached trajectories
+ *
+ * @param keyframes - Timeline keyframes
+ * @param trajectoryCache - Trajectory cache
+ * @param loopIteration - Current loop iteration
+ * @returns Validation result
+ */
+export function validateTimelineForQueue(
+  keyframes: Keyframe[],
+  trajectoryCache: Map<string, CachedTrajectory>,
+  loopIteration: number = 0
+): { valid: boolean; error?: string } {
+  const segmentCount = keyframes.length - 1;
+
+  if (segmentCount <= 0) {
+    return { valid: false, error: 'Timeline must have at least 2 keyframes' };
+  }
+
+  if (segmentCount > 50) {
+    return {
+      valid: false,
+      error: `Timeline has ${segmentCount} segments. Maximum recommended is 50 to stay within queue limits.`
+    };
+  }
+
+  // Check trajectory cache for cartesian segments
+  const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+  for (let i = 1; i < sortedKeyframes.length; i++) {
+    const prev = sortedKeyframes[i - 1];
+    const curr = sortedKeyframes[i];
+
+    if (curr.motionType === 'cartesian') {
+      const baseCacheKey = `${prev.id}_${curr.id}`;
+      const cacheKey = loopIteration > 0 ? `${baseCacheKey}_loop${loopIteration}` : baseCacheKey;
+
+      if (!trajectoryCache.has(cacheKey)) {
+        return {
+          valid: false,
+          error: `Missing trajectory for cartesian segment ${i} (${prev.id} → ${curr.id}). Toggle cartesian mode to recalculate.`
+        };
+      }
+    }
+  }
+
+  return { valid: true };
+}
 
 /**
  * Solve IK with J1 sweep fallback strategy.
@@ -298,16 +519,16 @@ export function usePlayback(availableTools: Tool[] = []) {
   const stop = useTimelineStore((state) => state.stop);
   const setPlaybackError = useTimelineStore((state) => state.setPlaybackError);
 
-  // Track last time for keyframe crossing detection
-  const lastTime = useRef(0);
+  // Track if commands have been sent for the current loop iteration
+  const commandsSentForLoop = useRef<number>(-1);
 
   useEffect(() => {
     if (!isPlaying || startTime === null) return;
 
-    // Reset lastTime when playback starts
-    lastTime.current = 0;
+    // Reset command tracking when playback starts
+    commandsSentForLoop.current = -1;
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
 
       // Apply loop deltas to keyframes for current iteration
@@ -354,8 +575,8 @@ export function usePlayback(availableTools: Tool[] = []) {
               loopCount: loopCount + 1
             }
           });
-          // Reset lastTime to process keyframes again
-          lastTime.current = 0;
+          // Commands will be sent again for the new loop iteration
+          // (commandsSentForLoop will not match loopCount + 1)
           // Don't return - let playback continue
         } else {
           // Done looping - stop playback
@@ -366,166 +587,37 @@ export function usePlayback(availableTools: Tool[] = []) {
 
       setCurrentTime(elapsed);
 
-      // Keyframe crossing detection (handles both joint and cartesian execution)
-      if (executeOnRobot) {
-        // Find all unique keyframe times crossed since last frame
-        const uniqueTimes = new Set<number>();
-        adjustedKeyframes.forEach(kf => {
-          if (kf.time >= lastTime.current && kf.time <= elapsed) {
-            uniqueTimes.add(kf.time);
-          }
-        });
+      // ========================================
+      // QUEUE COMMANDS FOR SUBSEQUENT LOOPS
+      // ========================================
+      // Initial loop (loopCount=0) commands are queued by usePrePlaybackPosition before play() starts.
+      // This only handles subsequent loop iterations (loopCount > 0).
+      if (executeOnRobot && loopCount > 0 && commandsSentForLoop.current !== loopCount) {
+        commandsSentForLoop.current = loopCount;
 
-        // Process each crossed keyframe time
-        const sortedTimes = Array.from(uniqueTimes).sort((a, b) => a - b);
-        sortedTimes.forEach(async (time) => {
-          // Find the crossed keyframe and send IO commands
-          const crossedKeyframe = adjustedKeyframes.find(kf => kf.time === time);
-          if (crossedKeyframe) {
-            if (crossedKeyframe.output_1 !== undefined) {
-              fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ output: 1, state: crossedKeyframe.output_1 })
-              }).catch(err => logger.error('Failed to set output 1', 'usePlayback', err));
-            }
-            if (crossedKeyframe.output_2 !== undefined) {
-              fetch(`${getApiBaseUrl()}/api/robot/io/set`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ output: 2, state: crossedKeyframe.output_2 })
-              }).catch(err => logger.error('Failed to set output 2', 'usePlayback', err));
-            }
-          }
+        // Validate timeline before sending
+        const trajectoryCache = useTimelineStore.getState().trajectoryCache;
+        const validation = validateTimelineForQueue(adjustedKeyframes, trajectoryCache, loopCount);
 
-          // Find next keyframe time after this one
-          const allKeyframeTimes = [...new Set(adjustedKeyframes.map(kf => kf.time))];
-          const futureKeyframeTimes = allKeyframeTimes.filter(t => t > time);
-          const nextKeyframeTime = futureKeyframeTimes.length > 0
-            ? Math.min(...futureKeyframeTimes)
-            : null;
+        if (!validation.valid) {
+          logger.error('Timeline validation failed', 'usePlayback', { error: validation.error });
+          pause();
+          setPlaybackError(validation.error || 'Timeline validation failed');
+          return;
+        }
 
-          if (nextKeyframeTime !== null) {
-            const commandDuration = nextKeyframeTime - time;
+        // Send all commands upfront
+        const result = await sendAllTimelineCommands(adjustedKeyframes, trajectoryCache, loopCount);
 
-            // Find the next keyframe to check its motion type
-            const nextKeyframe = adjustedKeyframes.find(kf => kf.time === nextKeyframeTime);
+        if (!result.success) {
+          logger.error('Failed to queue timeline commands', 'usePlayback', { error: result.error });
+          pause();
+          setPlaybackError(result.error || 'Failed to queue timeline commands');
+          return;
+        }
 
-            if (nextKeyframe?.motionType === 'cartesian' && nextKeyframe.cartesianPose) {
-              // ========================================
-              // CARTESIAN EXECUTION WITH FRONTEND IK
-              // ========================================
-
-              // Get start pose (current keyframe's cartesian pose)
-              const currentKeyframe = adjustedKeyframes.find(kf => kf.time === time);
-              const startPose = currentKeyframe?.cartesianPose || getCartesianPoseAtTime(adjustedKeyframes, time);
-              const endPose = nextKeyframe.cartesianPose;
-
-              if (!startPose || !computationRobotRef) {
-                logger.error('Missing start pose or robot ref', 'usePlayback', { time, nextKeyframeTime });
-                pause();
-                setPlaybackError('Cartesian execution failed: Missing pose data');
-                return;
-              }
-
-              // Get current joint angles (seed for IK)
-              const startJoints = getJointAnglesAtTime(adjustedKeyframes, time);
-
-              // Check cache - include loop iteration in key if loopCount > 0
-              const baseCacheKey = `${currentKeyframe?.id}_${nextKeyframe.id}`;
-              const cacheKey = loopCount > 0 ? `${baseCacheKey}_loop${loopCount}` : baseCacheKey;
-
-              logger.debug(`Looking for cache with key: ${cacheKey} (loop ${loopCount})`, 'usePlayback');
-              logger.debug(`currentKeyframe: ${currentKeyframe?.id} at time ${time}`, 'usePlayback');
-              logger.debug(`nextKeyframe: ${nextKeyframe.id} at time ${nextKeyframeTime}`, 'usePlayback');
-
-              const getCachedTrajectory = useTimelineStore.getState().getCachedTrajectory;
-              const setCachedTrajectory = useTimelineStore.getState().setCachedTrajectory;
-
-              // Debug: Show all cache keys
-              const allCacheKeys = Array.from(useTimelineStore.getState().trajectoryCache.keys());
-              logger.debug('All cached keys', 'usePlayback', { allCacheKeys });
-
-              const cachedTrajectory = getCachedTrajectory(cacheKey);
-              logger.debug(`Cache found: ${!!cachedTrajectory}`, 'usePlayback');
-
-              // CRITICAL: Cache MUST exist - no fallbacks, no recomputing during playback!
-              if (!cachedTrajectory) {
-                logger.error('FATAL: No cached trajectory found!', 'usePlayback');
-                logger.error(`Requested key: ${cacheKey}`, 'usePlayback');
-                logger.error('Available keys', 'usePlayback', { allCacheKeys });
-                logger.error('Missing cached trajectory for cartesian segment', 'usePlayback', {
-                  cacheKey,
-                  availableKeys: allCacheKeys,
-                  currentKeyframe: currentKeyframe?.id,
-                  nextKeyframe: nextKeyframe.id
-                });
-                pause();
-                setPlaybackError(`FATAL: Cartesian trajectory not pre-calculated for segment ${cacheKey}. Trajectory must be cached before playback (toggle keyframe to cartesian first).`);
-                return;
-              }
-
-              // Use pre-cached trajectory (includes loop adjustments if loopCount > 0)
-              const trajectory = cachedTrajectory.waypointJoints.map(joints => [
-                joints.J1, joints.J2, joints.J3, joints.J4, joints.J5, joints.J6
-              ]);
-
-              // Check if any waypoint failed IK during pre-calculation
-              const anyFailed = cachedTrajectory.ikValid.some(valid => !valid);
-              if (anyFailed) {
-                const failedIndex = cachedTrajectory.ikValid.findIndex(valid => !valid);
-                logger.error('Cached trajectory has failed IK', 'usePlayback', { failedAt: failedIndex });
-                pause();
-                setPlaybackError(`Cartesian execution failed at waypoint ${failedIndex}: IK solver could not reach target pose (pre-calculated)`);
-                return;
-              }
-
-              const result = { success: true, trajectory };
-              logger.info('Using cached trajectory', 'usePlayback', { cacheKey, waypoints: trajectory.length });
-
-              if (!result.success || !result.trajectory) {
-                logger.error('Pre-calculation failed', 'usePlayback', { error: result.error, failedAt: result.failedAt });
-                pause();
-                setPlaybackError(`Cartesian execution failed at waypoint ${result.failedAt}: ${result.error}`);
-                return;
-              }
-
-              // Execute trajectory on robot
-              try {
-                const execResult = await executeTrajectory({
-                  trajectory: result.trajectory,
-                  duration: commandDuration,
-                  wait_for_ack: false
-                });
-
-                if (!execResult.success) {
-                  logger.error('Execute failed', 'usePlayback', { message: execResult.message });
-                  pause();
-                  setPlaybackError(`Trajectory execution failed: ${execResult.message}`);
-                }
-              } catch (error) {
-                logger.error('Execute error', 'usePlayback', { error });
-                pause();
-                setPlaybackError(`Trajectory execution error: ${error}`);
-              }
-
-            } else {
-              // ========================================
-              // JOINT EXECUTION (EXISTING LOGIC)
-              // ========================================
-              const nextKeyframeAngles = getJointAnglesAtTime(adjustedKeyframes, nextKeyframeTime);
-
-              // Send move command to NEXT keyframe with duration
-              moveJoints(nextKeyframeAngles, undefined, commandDuration).catch(error => {
-                logger.error('Failed to send move command', 'usePlayback', { error });
-              });
-            }
-          }
-        });
+        logger.info(`Queued ${result.commandCount} commands for loop ${loopCount}`, 'usePlayback');
       }
-
-      // Update lastTime for next frame
-      lastTime.current = elapsed;
 
       // Update tool based on current timeline position (same pattern as useScrubbing)
       if (availableTools.length > 0 && adjustedKeyframes.length > 0) {
@@ -630,26 +722,7 @@ export function usePlayback(availableTools: Tool[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, startTime, duration, motionMode, keyframes, setCurrentTime, stop, executeOnRobot]);
 
-  // Motion recording: Auto start/stop when executing on robot
-  const motionRecordingStarted = useRef(false);
-
-  useEffect(() => {
-    const { startRecording, stopRecording } = useMotionRecordingStore.getState();
-
-    if (isPlaying && executeOnRobot && !motionRecordingStarted.current) {
-      // Start motion recording when playback begins with executeOnRobot
-      motionRecordingStarted.current = true;
-      startRecording().then(success => {
-        if (success) {
-          logger.info('Motion recording started automatically', 'usePlayback');
-        }
-      });
-    } else if (!isPlaying && motionRecordingStarted.current) {
-      // Stop motion recording when playback stops
-      motionRecordingStarted.current = false;
-      stopRecording().then(() => {
-        logger.info('Motion recording stopped automatically', 'usePlayback');
-      });
-    }
-  }, [isPlaying, executeOnRobot]);
+  // NOTE: Recording is now commander-driven, not timeline-driven.
+  // When recording is armed via UI toggle, commander auto-starts recording
+  // when first command begins executing and auto-stops when queue is empty.
 }

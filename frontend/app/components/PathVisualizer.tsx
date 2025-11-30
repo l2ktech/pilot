@@ -239,7 +239,8 @@ export default function PathVisualizer({ visible = true, availableTools }: PathV
             // Check cache for this loop iteration
             const baseCacheKey = `${startKeyframe.id}_${endKeyframe.id}`;
             const cacheKey = loop > 0 ? `${baseCacheKey}_loop${loop}` : baseCacheKey;
-            const cachedTrajectory = useTimelineStore.getState().getCachedTrajectory(cacheKey);
+            // Use subscribed trajectoryCache to ensure reactivity when cache updates
+            const cachedTrajectory = trajectoryCache.get(cacheKey);
 
             if (!cachedTrajectory) {
               if (loop === 0) {
