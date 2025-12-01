@@ -2,6 +2,8 @@
 
 Tools (end-effectors) are devices mounted to the robot's J6 flange. Configure them in Pilot at `/configuration`.
 
+![Tool Configuration Page](../assets/images/configuration.png)
+
 ## Creating a New Tool
 
 1. Go to **Configuration** page (`/configuration`)
@@ -45,6 +47,19 @@ Defines the **Tool Center Point** - the reference point for all Cartesian moveme
 | X, Y, Z | mm | Position of TCP relative to flange |
 | RX, RY, RZ | degrees | Orientation of TCP |
 
+The 3D preview shows a TCP gizmo (three colored arrows). Adjust the offset values until:
+
+1. The gizmo is positioned at your tool's working point (gripper tip, suction point, etc.)
+2. The gizmo axes align with real-world axes
+
+**Gizmo colors:**
+
+| Gizmo | Axis |
+|-------|------|
+| Orange | X (Red) |
+| Cyan | Y (Green) |
+| Magenta | Z (Blue) |
+
 !!! tip "TCP vs Mesh"
     These are independent. Mesh Offset is purely visual. TCP Offset affects robot motion calculations.
 
@@ -73,20 +88,3 @@ On the main control page:
 3. The 3D view updates to show the tool
 4. Cartesian coordinates now reference the new TCP
 
----
-
-## Calibrating TCP
-
-To find the correct TCP offset:
-
-**Measurement method:**
-
-1. Measure your tool's physical dimensions
-2. Calculate offset from J6 flange to the working point (gripper tip, suction point, etc.)
-3. Enter values in the Configuration page
-
-**Touch calibration:**
-
-1. Touch a fixed point (like a table corner) from multiple orientations
-2. Adjust TCP offset until all orientations touch the same point
-3. When correct, the TCP remains stationary regardless of tool orientation

@@ -2,7 +2,7 @@
 
 **Pilot** is a modern web-based control system for the [PAROL6](https://github.com/PCrnjak/PAROL6-Desktop-robot-arm) 6-axis robotic arm. It provides an intuitive browser interface with real-time 3D visualization, timeline-based motion programming, and live robot control.
 
-![Pilot Interface](https://via.placeholder.com/800x400?text=Pilot+Interface+Screenshot)
+![Pilot Interface](assets/images/frontpage.png)
 
 !!! info "About PAROL6"
     PAROL6 is an open-source 6-axis robotic arm created by [Source Robotics](https://source-robotics.com/). If you're building or learning about the robot itself, check out:
