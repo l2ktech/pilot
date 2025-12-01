@@ -1,0 +1,54 @@
+site_name: PAROL6 Documentation
+site_url: https://jointaxis77.github.io/parol6-webcommander/
+site_description: Documentation for the PAROL6 robot control system
+repo_url: https://github.com/jointAxis77/parol6-webcommander
+repo_name: jointAxis77/parol6-webcommander
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Configuration: getting-started/configuration.md
+    - Quick Start: getting-started/quick-start.md
+  - User Guide:
+    - Interface Overview: user-guide/interface-overview.md
+    - Timeline Programming: user-guide/timeline-programming.md
+    - Tool Management: user-guide/tool-management.md
+    - Safety: user-guide/safety.md
