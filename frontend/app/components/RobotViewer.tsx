@@ -1885,13 +1885,13 @@ export default function RobotViewer({ activeToolId }: { activeToolId?: string } 
       {showHelpAnnotations && (
         <>
           <div
-            className="absolute top-[23px] right-[175px] z-20 text-orange-400 pointer-events-none whitespace-nowrap"
+            className="absolute top-[23px] right-[225px] z-20 text-orange-400 pointer-events-none whitespace-nowrap"
             style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
           >
             Connection status to backend and robot
           </div>
           <div
-            className="absolute top-[62px] right-[175px] z-20 text-yellow-400 pointer-events-none whitespace-nowrap"
+            className="absolute top-[62px] right-[225px] z-20 text-yellow-400 pointer-events-none whitespace-nowrap"
             style={{ fontFamily: "'Patrick Hand', cursive", fontSize: '16px', lineHeight: '1.2' }}
           >
             Live control, robot will move instantly
