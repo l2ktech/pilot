@@ -1,6 +1,6 @@
-site_name: PAROL6 Documentation
+site_name: Pilot
 site_url: https://jointaxis77.github.io/parol6-webcommander/
-site_description: Documentation for the PAROL6 robot control system
+site_description: Web-based control system for the PAROL6 robot arm
 repo_url: https://github.com/jointAxis77/parol6-webcommander
 repo_name: jointAxis77/parol6-webcommander
 

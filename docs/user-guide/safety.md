@@ -1,7 +1,7 @@
 # Safety Guide
 
 !!! danger "Important"
-    PAROL6 controls a physical robot arm capable of causing injury. Read and follow all safety guidelines before operating.
+    Pilot controls a physical robot arm capable of causing injury. Read and follow all safety guidelines before operating.
 
 ## General Safety Rules
 
@@ -113,7 +113,7 @@ Never reach into the workspace during motion.
 
 ## Joint Limits
 
-PAROL6 enforces software joint limits to prevent:
+Pilot enforces software joint limits to prevent:
 
 - Mechanical damage
 - Self-collision
@@ -212,7 +212,7 @@ Fast motions with heavy payloads create additional forces:
 
 ## Training Requirements
 
-Before operating PAROL6:
+Before operating Pilot:
 
 - [ ] Read this safety guide completely
 - [ ] Understand the emergency stop system

@@ -1,6 +1,6 @@
 # Interface Overview
 
-This guide explains the main components of the PAROL6 control interface.
+This guide explains the main components of the Pilot control interface.
 
 ## Main Layout
 

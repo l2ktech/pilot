@@ -1,8 +1,16 @@
-# PAROL6 Robot Control System
+# Pilot
 
-Welcome to the documentation for PAROL6, a modern web-based control system for the PAROL6 6-axis robotic arm.
+**Pilot** is a modern web-based control system for the [PAROL6](https://github.com/PCrnjak/PAROL6-Desktop-robot-arm) 6-axis robotic arm. It provides an intuitive browser interface with real-time 3D visualization, timeline-based motion programming, and live robot control.
 
-![PAROL6 Interface](https://via.placeholder.com/800x400?text=PAROL6+Interface+Screenshot)
+![Pilot Interface](https://via.placeholder.com/800x400?text=Pilot+Interface+Screenshot)
+
+!!! info "About PAROL6"
+    PAROL6 is an open-source 6-axis robotic arm created by [Source Robotics](https://source-robotics.com/). If you're building or learning about the robot itself, check out:
+
+    - [PAROL6 GitHub Repository](https://github.com/PCrnjak/PAROL6-Desktop-robot-arm) - Hardware designs, BOM, and assembly instructions
+    - [Official PAROL6 Documentation](https://source-robotics.github.io/PAROL-docs/) - Comprehensive guides for building and calibrating your robot
+
+    **Pilot** is a community-developed control interface that runs alongside your PAROL6 robot.
 
 ## Features
 
@@ -21,7 +29,7 @@ Welcome to the documentation for PAROL6, a modern web-based control system for t
 
     ---
 
-    Get PAROL6 up and running on your system
+    Get Pilot up and running on your system
 
     [:octicons-arrow-right-24: Installation Guide](getting-started/installation.md)
 
@@ -64,7 +72,7 @@ Welcome to the documentation for PAROL6, a modern web-based control system for t
 ## Getting Help
 
 !!! tip "Beta Software"
-    This is beta software under active development. Expect occasional bugs and quirks.
+    Pilot is beta software under active development. Expect occasional bugs and quirks.
 
-- **Discord**: Join our [Discord channel](https://discord.com/channels/1072498136284667955/1436740840818217054) for support and discussion
-- **GitHub**: Report issues at [GitHub Issues](https://github.com/jointAxis77/parol6-webcommander/issues)
+- **Discord**: Join the [#pilot channel](https://discord.com/channels/1072498136284667955/1436740840818217054) on the Source Robotics Discord for support and discussion
+- **GitHub**: Report issues or contribute at [GitHub](https://github.com/jointAxis77/parol6-webcommander)

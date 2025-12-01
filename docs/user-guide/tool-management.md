@@ -33,7 +33,7 @@ Different tools have different TCP positions:
 
 ### Default Tools
 
-PAROL6 comes with preset tools:
+Pilot comes with preset tools:
 
 | Tool | Description |
 |------|-------------|
