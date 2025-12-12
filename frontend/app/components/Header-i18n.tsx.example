@@ -1,0 +1,52 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { LanguageSwitcher } from './LanguageSwitcher';
+
+export default function Header() {
+  const t = useTranslations();
+  const pathname = usePathname();
+
+  const navigation = [
+    { name: t('nav.control'), href: '/' },
+    { name: t('nav.camera'), href: '/camera' },
+    { name: t('nav.configuration'), href: '/configuration' },
+    { name: t('nav.monitoring'), href: '/monitoring' },
+    { name: t('nav.performance'), href: '/performance' },
+    { name: t('nav.debug'), href: '/debug' },
+    { name: t('nav.settings'), href: '/settings' }
+  ];
+
+  return (
+    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 items-center justify-between">
+        <div className="flex items-center gap-6">
+          <h1 className="text-xl font-bold">{t('header.title')}</h1>
+          <nav className="hidden md:flex items-center gap-6">
+            {navigation.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`text-sm font-medium transition-colors hover:text-primary ${
+                  pathname === item.href
+                    ? 'text-foreground'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {item.name}
+              </Link>
+            ))}
+          </nav>
+        </div>
+        
+        <LanguageSwitcher />
+      </div>
+    </header>
+  );
+}
+
+// 使用说明：
+// 1. 将此文件重命名为 Header.tsx（替换原文件）
+// 2. 或者将内容合并到现有的 Header.tsx 中

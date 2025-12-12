@@ -2,7 +2,7 @@
 # PAROL6 Startup Script
 # Kills any existing PM2 processes and starts fresh
 
-cd /home/jacob/parol6
+cd /l2k/home/wzy/21-L2Karm/10-parol6-web-pliot
 
 echo "=== PAROL6 Startup Script ==="
 echo "Stopping any existing PM2 processes..."

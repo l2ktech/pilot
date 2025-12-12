@@ -44,7 +44,7 @@ logging:
 robot:
   auto_home_on_startup: false
   baud_rate: 3000000
-  com_port: /dev/ttyACM0
+  com_port: /dev/ttyACM1
   estop_enabled: true
   j2_backlash_offset: 6
   timeout: 0
