@@ -6,17 +6,17 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/app/lib/configStore';
 
 const baseTabs = [
-  { name: 'Control', href: '/' },
-  { name: 'Configuration', href: '/configuration' },
-  { name: 'Camera', href: '/camera' },
-  { name: 'Logs', href: '/logs' },
-  { name: 'Monitoring', href: '/monitoring' },
-  { name: 'Settings', href: '/settings' },
+  { name: '控制', href: '/' },
+  { name: '配置', href: '/configuration' },
+  { name: '摄像头', href: '/camera' },
+  { name: '日志', href: '/logs' },
+  { name: '监控', href: '/monitoring' },
+  { name: '设置', href: '/settings' },
 ];
 
 const debugTabs = [
-  { name: 'Performance', href: '/performance' },
-  { name: 'Debug', href: '/debug' },
+  { name: '性能', href: '/performance' },
+  { name: '调试', href: '/debug' },
 ];
 
 export default function Header() {
@@ -33,7 +33,7 @@ export default function Header() {
     <header className="border-b px-6 py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <h1 className="text-xl font-bold">PAROL6 Control Interface</h1>
+          <h1 className="text-xl font-bold">PAROL6 控制界面</h1>
           <nav className="flex gap-2">
             {tabs.map((tab) => {
               const isActive = pathname === tab.href;

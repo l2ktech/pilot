@@ -194,7 +194,7 @@ export default function ControlOptions() {
             disabled={isClearing}
           >
             <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
-            {isClearing ? 'Clearing...' : 'Clear E-Stop'}
+            {isClearing ? '清除中...' : '清除急停'}
           </Button>
         )}
 
@@ -208,7 +208,7 @@ export default function ControlOptions() {
             disabled={isStopping}
           >
             <StopCircle className="h-3.5 w-3.5 mr-1.5" />
-            {isStopping ? 'Stopping...' : 'STOP Robot'}
+            {isStopping ? '停止中...' : '停止机器人'}
           </Button>
         )}
 
@@ -219,7 +219,7 @@ export default function ControlOptions() {
           onClick={handleHome}
           disabled={isHoming || isMoving || robotStatus?.is_stopped == null}
         >
-          {isHoming ? 'Homing...' : 'Home hardware robot'}
+          {isHoming ? '回零中...' : '机器人回零'}
         </Button>
 
         {/* Sync Section */}
@@ -235,11 +235,11 @@ export default function ControlOptions() {
                   variant="outline"
                   className="h-8 text-xs w-full"
                 >
-                  Robot → Commander
+                  机器人 → 命令器
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Copy hardware robot position to commander</p>
+                <p>将机器人硬件位置复制到命令器</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -253,7 +253,7 @@ export default function ControlOptions() {
                   variant="outline"
                   className="h-8 text-xs w-full"
                 >
-                  Commander → Robot
+                  命令器 → 机器人
                 </Button>
               </TooltipTrigger>
               <TooltipContent>

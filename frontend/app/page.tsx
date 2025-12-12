@@ -464,7 +464,7 @@ export default function Home() {
             <div className="bg-card rounded-lg border p-3 space-y-2">
               <div>
                 <Label className="text-xs font-medium mb-1 block">
-                  Speed: {speed}%
+                  速度: {speed}%
                 </Label>
                 <Slider
                   value={[speed]}
