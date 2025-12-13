@@ -55,7 +55,7 @@ class NetworkHandler:
 
     def __init__(self,
                  logger: logging.Logger,
-                 listen_ip: str = "127.0.0.1",
+                 listen_ip: str = "0.0.0.0",  # 绑定所有网络接口，允许外部网络访问
                  command_port: int = UDP_COMMAND_PORT,
                  ack_port: int = UDP_ACK_PORT,
                  buffer_max_size: int = 100):

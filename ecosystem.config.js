@@ -21,7 +21,7 @@ module.exports = {
     {
       name: 'parol-commander',
       script: 'commander.py',
-      interpreter: '/l2k/home/wzy/21-L2Karm/envs/parol6_ws/bin/python3',
+      interpreter: '/l2k/home/wzy/21-L2Karm/envs/10-parol6-web-pliot/bin/python3',
       cwd: '/l2k/home/wzy/21-L2Karm/10-parol6-web-pliot/commander',
       env: {
         PYTHONUNBUFFERED: '1',
@@ -39,7 +39,7 @@ module.exports = {
     {
       name: 'parol-api',
       script: 'fastapi_server.py',
-      interpreter: '/l2k/home/wzy/21-L2Karm/envs/parol6_ws/bin/python3',
+      interpreter: '/l2k/home/wzy/21-L2Karm/envs/10-parol6-web-pliot/bin/python3',
       cwd: '/l2k/home/wzy/21-L2Karm/10-parol6-web-pliot/api',
       env: {
         PYTHONUNBUFFERED: '1',

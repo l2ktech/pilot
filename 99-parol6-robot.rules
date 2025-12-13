@@ -1,0 +1,24 @@
+# =============================================================================
+# PAROL6 机械臂 udev 规则
+# 实现热插拔自动识别，创建固定的符号链接
+#
+# 安装方法:
+#   sudo cp 99-parol6-robot.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# 验证:
+#   ls -la /dev/parol6
+#
+# 说明:
+#   - 当 PAROL6 控制器 (STM32 F446) 连接时，自动创建 /dev/parol6 符号链接
+#   - 同时授予普通用户读写权限 (无需 sudo)
+# =============================================================================
+
+# PAROL6 Robot Controller - STMicroelectronics STM32 F446
+# USB Vendor ID: 0483 (STMicroelectronics)
+# 创建 /dev/parol6 符号链接，并授予 dialout 组读写权限
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="parol6", MODE="0666", GROUP="dialout"
+
+# 备注: 如果有多个 STM32 设备，可以使用序列号区分
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{serial}=="2067325D5553", SYMLINK+="parol6", MODE="0666", GROUP="dialout"

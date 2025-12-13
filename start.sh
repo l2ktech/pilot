@@ -15,6 +15,16 @@ sleep 2
 
 echo "Starting PM2 processes..."
 
+# 自动检测 PAROL6 串口并更新配置
+echo ""
+echo "=== 检测 PAROL6 串口 ==="
+if [ -x "./auto_detect_serial.sh" ]; then
+    ./auto_detect_serial.sh
+else
+    echo "警告: auto_detect_serial.sh 不存在或不可执行"
+fi
+echo ""
+
 # Start all services using ecosystem config
 pm2 start ecosystem.config.js
 

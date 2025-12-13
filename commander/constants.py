@@ -105,7 +105,7 @@ SMOOTH_MOTION_POSITION_THRESHOLD_RELAXED_MM = 5.0  # Relaxed threshold (5mm)
 # ============================================================================
 
 # UDP communication
-UDP_LISTEN_IP = "127.0.0.1"  # Loopback address for local communication
+UDP_LISTEN_IP = "0.0.0.0"  # 绑定所有网络接口，允许外部网络访问
 UDP_COMMAND_PORT = 5001  # Port for receiving commands
 UDP_ACK_PORT = 5002  # Port for sending acknowledgments
 

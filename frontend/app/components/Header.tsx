@@ -9,8 +9,7 @@ const baseTabs = [
   { name: '控制', href: '/' },
   { name: '配置', href: '/configuration' },
   { name: '摄像头', href: '/camera' },
-  { name: '日志', href: '/logs' },
-  { name: '监控', href: '/monitoring' },
+  { name: '监控/日志', href: '/monitoring' },  // 日志功能集成在监控页面
   { name: '设置', href: '/settings' },
 ];
 

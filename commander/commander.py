@@ -247,7 +247,7 @@ ack_port = config.get('server', {}).get('ack_port', 5002)
 # Initialize network handler for UDP communication
 network_handler = NetworkHandler(
     logger=logger,
-    listen_ip="127.0.0.1",
+    listen_ip="0.0.0.0",  # 绑定所有网络接口，允许外部网络访问
     command_port=command_port,
     ack_port=ack_port,
     buffer_max_size=100
