@@ -53,7 +53,7 @@ except FileNotFoundError:
         'api': {
             'host': '0.0.0.0',
             'port': 8000,
-            'cors_origins': ['http://localhost:3000', 'http://localhost:3001']
+            'cors_origins': ['http://localhost:35610', 'http://localhost:35611']
         },
         'logging': {
             'level': 'INFO',
@@ -202,12 +202,12 @@ Connect to `/ws` for streaming robot telemetry at configurable rates (1-50Hz).
     lifespan=lifespan
 )
 
-# Configure CORS - Allow frontend on port 3000 from any host
+# Configure CORS - Allow frontend on ports 35610, 35611 from any host
 # This allows deployment without configuring specific IPs
-# Regex matches: http://[any-host]:3000 and http://[any-host]:3001
+# Regex matches: http://[any-host]:35610, http://[any-host]:35611
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|[\d\.]+|[a-zA-Z0-9\-\.]+):(3000|3001)",
+    allow_origin_regex=r"https?://(localhost|[\d\.]+|[a-zA-Z0-9\-\.]+):(35610|35611)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1565,7 +1565,7 @@ async def camera_stream():
     MJPEG video stream endpoint
 
     Returns a continuous multipart MJPEG stream that can be displayed in an img tag:
-    <img src="http://localhost:3001/api/camera/stream" />
+    <img src="http://localhost:35611/api/camera/stream" />
     """
     return StreamingResponse(
         generate_mjpeg_stream(),

@@ -4,6 +4,19 @@
 
 cd /l2k/home/wzy/21-L2Karm/10-parol6-web-pliot
 
+# 激活项目专有Python虚拟环境
+VENV_PATH="/l2k/home/wzy/21-L2Karm/envs/10-parol6-web-pliot"
+if [ -f "$VENV_PATH/bin/activate" ]; then
+    echo "=== 激活Python虚拟环境 ==="
+    . "$VENV_PATH/bin/activate"
+    echo "已激活: $VENV_PATH"
+    echo "Python路径: $(which python3)"
+    echo ""
+else
+    echo "警告: 虚拟环境未找到: $VENV_PATH"
+    echo "请创建虚拟环境: python3 -m venv $VENV_PATH"
+fi
+
 echo "=== PAROL6 Startup Script ==="
 echo "Stopping any existing PM2 processes..."
 
@@ -38,8 +51,8 @@ pm2 list
 
 echo ""
 echo "=== Startup Complete ==="
-echo "Frontend: http://localhost:3000"
-echo "API:      http://localhost:3001"
-echo "API Docs: http://localhost:3001/redoc"
+echo "Frontend: http://localhost:35610"
+echo "API:      http://localhost:35611"
+echo "API Docs: http://localhost:35611/redoc"
 echo ""
 echo "View logs: pm2 logs"

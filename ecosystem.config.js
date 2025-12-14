@@ -7,7 +7,7 @@ module.exports = {
       cwd: '/l2k/home/wzy/21-L2Karm/10-parol6-web-pliot/frontend',
       env: {
         NODE_ENV: 'development',
-        PORT: '3000'
+        PORT: '35610'
       },
       autorestart: true,
       watch: false,  // Next.js has its own hot reload

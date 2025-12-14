@@ -99,7 +99,7 @@ check_port() {
 }
 
 check_port 3000
-check_port 3001
+check_port 35611
 check_port 5001
 
 echo ""
@@ -132,8 +132,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "📱 访问地址:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "   🌐 前端界面: http://localhost:3000"
-echo "   📡 API文档:  http://localhost:3001/docs"
-echo "   📊 API重定向: http://localhost:3001/redoc"
+echo "   📡 API文档:  http://localhost:35611/docs"
+echo "   📊 API重定向: http://localhost:35611/redoc"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "💡 常用命令:"

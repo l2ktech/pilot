@@ -1,6 +1,6 @@
 api:
   host: 0.0.0.0
-  port: 3001
+  port: 35611
   ws_default_rate_hz: 10
   ws_max_rate_hz: 50
 camera:
@@ -12,7 +12,7 @@ camera:
     height: 480
     width: 640
 frontend:
-  api_url: http://localhost:3001
+  api_url: http://localhost:35611
   websocket:
     default_rate_hz: 50
     hardware_data_timeout_ms: 3000
@@ -44,7 +44,7 @@ logging:
 robot:
   auto_home_on_startup: false
   baud_rate: 3000000
-  com_port: /dev/ttyACM0
+  com_port: /dev/ttyACM2
   estop_enabled: true
   j2_backlash_offset: 6
   timeout: 0

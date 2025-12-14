@@ -5,21 +5,21 @@
  * based on the hostname that the frontend is accessed from.
  *
  * Example:
- * - Frontend at http://192.168.1.100:3000 -> API at http://192.168.1.100:3001
- * - Frontend at http://parol6.local:3000 -> API at http://parol6.local:3001
+ * - Frontend at http://192.168.1.100:35610 -> API at http://192.168.1.100:35611
+ * - Frontend at http://parol6.local:35610 -> API at http://parol6.local:35611
  */
 
-const API_PORT = 3001;
+const API_PORT = 35611;
 
 /**
  * Get the base API URL dynamically based on window.location
  *
- * @returns The HTTP API base URL (e.g., "http://192.168.1.100:3001")
+ * @returns The HTTP API base URL (e.g., "http://192.168.1.100:35611")
  */
 export function getApiBaseUrl(): string {
   // Server-side rendering or build time - return default fallback
   if (typeof window === 'undefined') {
-    return 'http://parol6.local:3001';
+    return 'http://parol6.local:35611';
   }
 
   // Dynamic URL construction from current location
@@ -31,12 +31,12 @@ export function getApiBaseUrl(): string {
 /**
  * Get the WebSocket URL dynamically based on window.location
  *
- * @returns The WebSocket URL (e.g., "ws://192.168.1.100:3001/ws")
+ * @returns The WebSocket URL (e.g., "ws://192.168.1.100:35611/ws")
  */
 export function getWsUrl(): string {
   // Server-side rendering or build time - return default fallback
   if (typeof window === 'undefined') {
-    return 'ws://parol6.local:3001/ws';
+    return 'ws://parol6.local:35611/ws';
   }
 
   // Dynamic WebSocket URL construction
@@ -45,3 +45,4 @@ export function getWsUrl(): string {
 
   return `${wsProtocol}//${hostname}:${API_PORT}/ws`;
 }
+
